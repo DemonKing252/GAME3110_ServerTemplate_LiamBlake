@@ -8,28 +8,35 @@ using UnityEngine.UI;
 
 public class NetworkedServer : MonoBehaviour
 {
-    int maxConnections = 1000;
-    int reliableChannelID;
-    int unreliableChannelID;
-    int hostID;
-    int socketPort = 5491;
+    public int MaxConnections = 16;
 
-    // Start is called before the first frame update
-    void Start()
+    // Message is guaranteed however it may not be in order
+    public int ReliableConnection;
+
+    // Message is not guaranteed, may not be in order (thus the name 'unreliable')
+    public int UnrealiableConnection;
+
+    public int port = 5491;
+    public int hostID;
+    
+
+    private void Start()
     {
-        NetworkTransport.Init();
-        ConnectionConfig config = new ConnectionConfig();
-        reliableChannelID = config.AddChannel(QosType.Reliable);
-        unreliableChannelID = config.AddChannel(QosType.Unreliable);
-        HostTopology topology = new HostTopology(config, maxConnections);
-        hostID = NetworkTransport.AddHost(topology, socketPort, null);
-        
+        // TODO: 
+        // 1. Establish a connection
+        // 2. Print a message when a client joins
+
+        TryConnection();
+
     }
 
-    // Update is called once per frame
-    void Update()
+    private void Update()
     {
+        HandleMessages();
+    }
 
+    private void HandleMessages()
+    {
         int recHostID;
         int recConnectionID;
         int recChannelID;
@@ -38,36 +45,66 @@ public class NetworkedServer : MonoBehaviour
         int dataSize;
         byte error = 0;
 
-        NetworkEventType recNetworkEvent = NetworkTransport.Receive(out recHostID, out recConnectionID, out recChannelID, recBuffer, bufferSize, out dataSize, out error);
+        NetworkEventType recNetworkEvent = NetworkTransport.Receive(out recHostID, 
+            out recConnectionID, 
+            out recChannelID, 
+            recBuffer, 
+            bufferSize, 
+            out dataSize, 
+            out error);
 
         switch (recNetworkEvent)
         {
-            case NetworkEventType.Nothing:
-                break;
             case NetworkEventType.ConnectEvent:
-                Debug.Log("Connection, " + recConnectionID);
+
+                Debug.Log("Client connecting: NetId: " + recConnectionID.ToString());
                 break;
             case NetworkEventType.DataEvent:
-                string msg = Encoding.Unicode.GetString(recBuffer, 0, dataSize);
-                ProcessRecievedMsg(msg, recConnectionID);
+                string str = Encoding.ASCII.GetString(recBuffer);
+                Debug.Log("Client says: " + str);
+
+                string msg_back_to_client = "Hello client, we hope you brought pizza";
+
+                // Sending message back to client using the same address that was recieved
+                byte[] buffer = Encoding.ASCII.GetBytes(msg_back_to_client);
+                NetworkTransport.Send(hostID, recConnectionID, ReliableConnection, buffer, buffer.Length, out error);
+
+
                 break;
             case NetworkEventType.DisconnectEvent:
-                Debug.Log("Disconnection, " + recConnectionID);
+
+                Debug.Log("Client disconnecting: netId:" + recConnectionID.ToString());
                 break;
         }
+        
 
     }
-  
-    public void SendMessageToClient(string msg, int id)
+
+    private void TryConnection()
     {
-        byte error = 0;
-        byte[] buffer = Encoding.Unicode.GetBytes(msg);
-        NetworkTransport.Send(hostID, id, reliableChannelID, buffer, msg.Length * sizeof(char), out error);
-    }
-    
-    private void ProcessRecievedMsg(string msg, int id)
-    {
-        Debug.Log("msg recieved = " + msg + ".  connection id = " + id);
+        NetworkTransport.Init();
+
+        ConnectionConfig config = new ConnectionConfig();
+
+        // https://docs.unity3d.com/ScriptReference/Networking.QosType.html
+
+        // Quality of service: Messages are guaranteed, but may not be in order
+        ReliableConnection = config.AddChannel(QosType.Reliable);
+
+        // Quality of service: Messages are not guaranteed, and may not be in order
+        UnrealiableConnection = config.AddChannel(QosType.Unreliable);
+
+        /*
+        Host topology: 
+        (1) how many connection with default config will be supported
+        (2) what will be special connections (connections with config different from default). 
+         
+        */
+
+        HostTopology hostTop = new HostTopology(config, MaxConnections);
+        hostID = NetworkTransport.AddHost(hostTop, port, null); // ip is left out since this is the server
+
+
     }
 
 }
