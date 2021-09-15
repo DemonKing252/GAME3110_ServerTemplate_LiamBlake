@@ -27,10 +27,6 @@ public class NetworkedServer : MonoBehaviour
     {
         public int netId;
 
-        public Client(int netId)
-        {
-            this.netId = netId;
-        }
     }
 
     public List<Client> clients;
@@ -86,7 +82,10 @@ public class NetworkedServer : MonoBehaviour
         switch (recNetworkEvent)
         {
             case NetworkEventType.ConnectEvent:
-                clients.Add(new Client(recConnectionID));
+
+                Client cl = new Client();
+                cl.netId = recConnectionID;
+                clients.Add(cl);
 
                 latestMessage.text = "Client connecting: NetId: " + recConnectionID.ToString();
                 Debug.Log("Client connecting: NetId: " + recConnectionID.ToString());
@@ -106,11 +105,17 @@ public class NetworkedServer : MonoBehaviour
             case NetworkEventType.DisconnectEvent:
                 latestMessage.text = "Client disconnecting: netId:" + recConnectionID.ToString();
 
-                clients.RemoveAt(recChannelID);
+                for(int i = 0; i < clients.Count; i++)
+                {
+                    if (clients[i].netId == recConnectionID)
+                    {
+                        clients.RemoveAt(i);
+                    }
+                }
 
                 foreach(Client c in clients)
                 {
-                    SendMessageToClient(string.Format("Client #{0} requested to quit", recChannelID), c.netId);
+                    SendMessageToClient("Client " + recConnectionID + " requested to quit", c.netId);
                 }
 
                 Debug.Log("Client disconnecting: netId:" + recConnectionID.ToString());
