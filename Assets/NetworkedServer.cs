@@ -18,8 +18,22 @@ public class NetworkedServer : MonoBehaviour
 
     public int port = 5491;
     public int hostID;
-    
 
+
+    public Text latestMessage;
+
+    [System.Serializable]
+    public class Client
+    {
+        public int netId;
+
+        public Client(int netId)
+        {
+            this.netId = netId;
+        }
+    }
+
+    public List<Client> clients;
     private void Start()
     {
         // TODO: 
@@ -27,12 +41,28 @@ public class NetworkedServer : MonoBehaviour
         // 2. Print a message when a client joins
 
         TryConnection();
-
+        clients = new List<Client>();
     }
 
     private void Update()
     {
         HandleMessages();
+        if (Input.GetKey(KeyCode.Alpha1))
+        {
+
+            foreach (Client c in clients)
+            {
+                SendMessageToClient(string.Format("This is sent out to all clients!  [ID: {0}]", c.netId), c.netId);
+            }
+        }
+    }
+    public void SendMessageToClient(string message, int clientID)
+    {
+
+        //string msg = string.Format("Sending to all clients how exciting! This client is [ID: {0}]", c.netId);
+        byte[] buffer = Encoding.Unicode.GetBytes(message);
+        byte error;
+        NetworkTransport.Send(hostID, clientID, ReliableConnection, buffer, buffer.Length, out error);
     }
 
     private void HandleMessages()
@@ -56,22 +86,32 @@ public class NetworkedServer : MonoBehaviour
         switch (recNetworkEvent)
         {
             case NetworkEventType.ConnectEvent:
+                clients.Add(new Client(recConnectionID));
 
+                latestMessage.text = "Client connecting: NetId: " + recConnectionID.ToString();
                 Debug.Log("Client connecting: NetId: " + recConnectionID.ToString());
                 break;
             case NetworkEventType.DataEvent:
-                string str = Encoding.ASCII.GetString(recBuffer);
+                string str = Encoding.Unicode.GetString(recBuffer);
                 Debug.Log("Client says: " + str);
 
                 string msg_back_to_client = "Hello client, we hope you brought pizza";
 
                 // Sending message back to client using the same address that was recieved
-                byte[] buffer = Encoding.ASCII.GetBytes(msg_back_to_client);
+                byte[] buffer = Encoding.Unicode.GetBytes(msg_back_to_client);
                 NetworkTransport.Send(hostID, recConnectionID, ReliableConnection, buffer, buffer.Length, out error);
 
 
                 break;
             case NetworkEventType.DisconnectEvent:
+                latestMessage.text = "Client disconnecting: netId:" + recConnectionID.ToString();
+
+                clients.RemoveAt(recChannelID);
+
+                foreach(Client c in clients)
+                {
+                    SendMessageToClient(string.Format("Client #{0} requested to quit", recChannelID), c.netId);
+                }
 
                 Debug.Log("Client disconnecting: netId:" + recConnectionID.ToString());
                 break;
