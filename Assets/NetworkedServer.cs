@@ -105,6 +105,7 @@ public class NetworkedServer : MonoBehaviour
             case NetworkEventType.DisconnectEvent:
                 latestMessage.text = "Client disconnecting: netId:" + recConnectionID.ToString();
 
+                // Find the client ID that correlates to the recieved connection id and remove it.
                 for(int i = 0; i < clients.Count; i++)
                 {
                     if (clients[i].netId == recConnectionID)
