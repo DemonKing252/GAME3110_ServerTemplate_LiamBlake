@@ -6,63 +6,75 @@ using UnityEngine.Networking;
 using System.IO;
 using UnityEngine.UI;
 
+public static class ClientToServerSignifier
+{
+    public const int Login = 1;
+    public const int CreateAccount = 2;
+
+}
+public static class ServerToClientSignifier
+{
+    public const int LoginResponse = 101;
+    public const int CreateResponse = 102;
+
+}
+
+public static class LoginResponse
+{
+    public const int Success = 1001;
+
+    public const int WrongNameAndPassword = 1002;
+    public const int WrongName = 1003;
+    public const int WrongPassword = 1004;
+}
+public static class CreateResponse
+{
+    // 10,000
+    public const int Success = 10001;
+    public const int UsernameTaken = 10002;
+}
+
+
+
+public class PlayerAccount
+{
+    public string username;
+    public string password;
+
+    public PlayerAccount(string user, string pass)
+    {
+        this.username = user;
+        this.password = pass;
+    }
+
+}
+
 public class NetworkedServer : MonoBehaviour
 {
-    public int MaxConnections = 16;
+    int maxConnections = 1000;
+    int reliableChannelID;
+    int unreliableChannelID;
+    int hostID;
+    int socketPort = 5491;
 
-    // Message is guaranteed however it may not be in order
-    public int ReliableConnection;
+    private LinkedList<PlayerAccount> playerAccounts = new LinkedList<PlayerAccount>();
 
-    // Message is not guaranteed, may not be in order (thus the name 'unreliable')
-    public int UnrealiableConnection;
-
-    public int port = 5491;
-    public int hostID;
-
-
-    public Text latestMessage;
-
-    [System.Serializable]
-    public class Client
+    // Start is called before the first frame update
+    void Start()
     {
-        public int netId;
+        NetworkTransport.Init();
+        ConnectionConfig config = new ConnectionConfig();
+        reliableChannelID = config.AddChannel(QosType.Reliable);
+        unreliableChannelID = config.AddChannel(QosType.Unreliable);
+        HostTopology topology = new HostTopology(config, maxConnections);
+        hostID = NetworkTransport.AddHost(topology, socketPort, null);
 
     }
 
-    public List<Client> clients;
-    private void Start()
-    {
-        // TODO: 
-        // 1. Establish a connection
-        // 2. Print a message when a client joins
-
-        TryConnection();
-        clients = new List<Client>();
-    }
-
-    private void Update()
-    {
-        HandleMessages();
-        if (Input.GetKey(KeyCode.Alpha1))
-        {
-
-            foreach (Client c in clients)
-            {
-                SendMessageToClient(string.Format("This is sent out to all clients!  [ID: {0}]", c.netId), c.netId);
-            }
-        }
-    }
-    public void SendMessageToClient(string message, int clientID)
+    // Update is called once per frame
+    void Update()
     {
 
-        //string msg = string.Format("Sending to all clients how exciting! This client is [ID: {0}]", c.netId);
-        byte[] buffer = Encoding.Unicode.GetBytes(message);
-        byte error;
-        NetworkTransport.Send(hostID, clientID, ReliableConnection, buffer, buffer.Length, out error);
-    }
-
-    private void HandleMessages()
-    {
         int recHostID;
         int recConnectionID;
         int recChannelID;
@@ -71,86 +83,114 @@ public class NetworkedServer : MonoBehaviour
         int dataSize;
         byte error = 0;
 
-        NetworkEventType recNetworkEvent = NetworkTransport.Receive(out recHostID, 
-            out recConnectionID, 
-            out recChannelID, 
-            recBuffer, 
-            bufferSize, 
-            out dataSize, 
-            out error);
+        NetworkEventType recNetworkEvent = NetworkTransport.Receive(out recHostID, out recConnectionID, out recChannelID, recBuffer, bufferSize, out dataSize, out error);
 
         switch (recNetworkEvent)
         {
+            case NetworkEventType.Nothing:
+                break;
             case NetworkEventType.ConnectEvent:
-
-                Client cl = new Client();
-                cl.netId = recConnectionID;
-                clients.Add(cl);
-
-                latestMessage.text = "Client connecting: NetId: " + recConnectionID.ToString();
-                Debug.Log("Client connecting: NetId: " + recConnectionID.ToString());
+                Debug.Log("Connection, " + recConnectionID);
                 break;
             case NetworkEventType.DataEvent:
-                string str = Encoding.Unicode.GetString(recBuffer);
-                Debug.Log("Client says: " + str);
-
-                string msg_back_to_client = "Hello client, we hope you brought pizza";
-
-                // Sending message back to client using the same address that was recieved
-                byte[] buffer = Encoding.Unicode.GetBytes(msg_back_to_client);
-                NetworkTransport.Send(hostID, recConnectionID, ReliableConnection, buffer, buffer.Length, out error);
-
-
+                string msg = Encoding.Unicode.GetString(recBuffer, 0, dataSize);
+                ProcessRecievedMsg(msg, recConnectionID);
                 break;
             case NetworkEventType.DisconnectEvent:
-                latestMessage.text = "Client disconnecting: netId:" + recConnectionID.ToString();
-
-                // Find the client ID that correlates to the recieved connection id and remove it.
-                for(int i = 0; i < clients.Count; i++)
-                {
-                    if (clients[i].netId == recConnectionID)
-                    {
-                        clients.RemoveAt(i);
-                    }
-                }
-
-                foreach(Client c in clients)
-                {
-                    SendMessageToClient("Client " + recConnectionID + " requested to quit", c.netId);
-                }
-
-                Debug.Log("Client disconnecting: netId:" + recConnectionID.ToString());
+                Debug.Log("Disconnection, " + recConnectionID);
                 break;
         }
-        
 
     }
 
-    private void TryConnection()
+    public void SendMessageToClient(string msg, int id)
     {
-        NetworkTransport.Init();
-
-        ConnectionConfig config = new ConnectionConfig();
-
-        // https://docs.unity3d.com/ScriptReference/Networking.QosType.html
-
-        // Quality of service: Messages are guaranteed, but may not be in order
-        ReliableConnection = config.AddChannel(QosType.Reliable);
-
-        // Quality of service: Messages are not guaranteed, and may not be in order
-        UnrealiableConnection = config.AddChannel(QosType.Unreliable);
-
-        /*
-        Host topology: 
-        (1) how many connection with default config will be supported
-        (2) what will be special connections (connections with config different from default). 
-         
-        */
-
-        HostTopology hostTop = new HostTopology(config, MaxConnections);
-        hostID = NetworkTransport.AddHost(hostTop, port, null); // ip is left out since this is the server
-
-
+        byte error = 0;
+        byte[] buffer = Encoding.Unicode.GetBytes(msg);
+        NetworkTransport.Send(hostID, id, reliableChannelID, buffer, msg.Length * sizeof(char), out error);
     }
 
+    private void ProcessRecievedMsg(string msg, int id)
+    {
+        Debug.Log("msg recieved = " + msg + ".  connection id = " + id);
+
+        string[] data = msg.Split(',');
+
+        int signifier = int.Parse(data[0]);
+
+        string _user = data[1];
+        string _pass = data[2];
+
+        if (signifier == ClientToServerSignifier.CreateAccount)
+        {
+
+            bool wasFound = false;
+            foreach(PlayerAccount p in playerAccounts)
+            {
+                if (p.username == _user)
+                {
+                    wasFound = true;
+                    break;
+                }
+            }
+            if (!wasFound)
+            {
+                playerAccounts.AddLast(new PlayerAccount(_user, _pass));
+                SendMessageToClient(ServerToClientSignifier.CreateResponse.ToString() + "," + CreateResponse.Success.ToString(), id);
+
+                //SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.Success.ToString(), 0);
+            }
+            else
+            {
+                SendMessageToClient(ServerToClientSignifier.CreateResponse.ToString() + "," + CreateResponse.UsernameTaken.ToString(), id);
+
+            }
+        }
+        else if (signifier == ClientToServerSignifier.Login)
+        {
+            //                      why is this true?
+            // assume that by default, if a user is not found, it cleary doesn't exist
+            // this loop only checks if its the WRONG user, not if it DOESNT exist
+            // think about that for a second
+
+            bool wrongpass = false, wronguser = true;
+            bool wasFound = false;
+            foreach (PlayerAccount p in playerAccounts)
+            {
+                // assume it exists unless otherwise it doesnt
+                wronguser = false;
+                if (p.username == _user && p.password == _pass)
+                {
+                    wasFound = true;
+                    break;
+                }
+                else
+                {
+                    // If password is wrong
+                    if (p.username == _user && p.password != _pass)
+                        wrongpass = true;
+                    // If user is wrong
+                    else if (p.username != _user && (p.password == _pass || p.password != _pass))
+                        wronguser = true;
+
+                }
+            }
+
+            // If the user name was found
+            if (wasFound)
+            {
+
+                SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.Success.ToString(), id);
+                //playerAccounts.AddLast(new PlayerAccount(_user, _pass));
+            }
+            else
+            {
+                if (wronguser)
+                    SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.WrongName.ToString(), id);
+                else if (wrongpass)
+                    SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.WrongPassword.ToString(), id);
+            }
+        }
+
+    }
 }
