@@ -5,6 +5,7 @@ using UnityEngine;
 using UnityEngine.Networking;
 using System.IO;
 using UnityEngine.UI;
+using System;
 
 public static class ClientToServerSignifier
 {
@@ -35,7 +36,7 @@ public static class CreateResponse
 }
 
 
-
+// So I can view it from the inspector
 public class PlayerAccount
 {
     public string username;
@@ -51,17 +52,25 @@ public class PlayerAccount
 
 public class NetworkedServer : MonoBehaviour
 {
+
+
+
     int maxConnections = 1000;
     int reliableChannelID;
     int unreliableChannelID;
     int hostID;
     int socketPort = 5491;
 
+    private string path;
+
     private LinkedList<PlayerAccount> playerAccounts = new LinkedList<PlayerAccount>();
 
     // Start is called before the first frame update
     void Start()
     {
+        path = Application.dataPath + "/Resources/PlayerAccounts.txt";
+        LoadAccounts();
+        
         NetworkTransport.Init();
         ConnectionConfig config = new ConnectionConfig();
         reliableChannelID = config.AddChannel(QosType.Reliable);
@@ -69,6 +78,84 @@ public class NetworkedServer : MonoBehaviour
         HostTopology topology = new HostTopology(config, maxConnections);
         hostID = NetworkTransport.AddHost(topology, socketPort, null);
 
+    }
+    void OnApplicationQuit()
+    {
+        SaveAccounts();
+    }
+
+    public void SaveAccounts()
+    {
+        StreamWriter sw = new StreamWriter(path);
+
+        try
+        {
+            // num of accounts|account user, account password|next account . . . . .
+
+            string data = playerAccounts.Count.ToString() + "|";
+
+            foreach (PlayerAccount p in playerAccounts)
+            {
+                data += p.username + "," + p.password + "|";
+            }
+            sw.WriteLine(data);
+            sw.Close();
+            
+        }
+        catch(Exception e)
+        {
+            Debug.LogError("ERROR when saving: " + e.Message);
+        }
+    }
+
+    public void LoadAccounts()
+    {
+
+        try
+        {
+            if (File.Exists(path))
+            {
+                StreamReader sr = new StreamReader(path);
+
+                string rawdata;
+                
+                rawdata = sr.ReadLine();
+
+                if (rawdata == null)
+                {
+                    rawdata = "0|";
+                }
+
+                // seperated data
+                string[] sData = rawdata.Split('|');
+
+                int numAccounts = int.Parse(sData[0]);
+
+                int index = 1;
+                for (int i = 0; i < numAccounts; i++)
+                {
+                    string[] accountinfo = sData[index].Split(',');
+                    PlayerAccount p = new PlayerAccount(accountinfo[0], accountinfo[1]);
+                    playerAccounts.AddLast(p);
+
+                    index++;
+                }
+
+                //Debug.Log("num accounts: " + numAccounts.ToString());
+            }
+            else
+            {
+                // Create a file for writing
+                SaveAccounts();
+
+                // Recursion comes in handy here
+                LoadAccounts();
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("ERROR when loading: " + e.Message);
+        }
     }
 
     // Update is called once per frame
@@ -153,42 +240,35 @@ public class NetworkedServer : MonoBehaviour
             // this loop only checks if its the WRONG user, not if it DOESNT exist
             // think about that for a second
 
-            bool wrongpass = false, wronguser = true;
             bool wasFound = false;
             foreach (PlayerAccount p in playerAccounts)
             {
                 // assume it exists unless otherwise it doesnt
-                wronguser = false;
-                if (p.username == _user && p.password == _pass)
+                //wronguser = true;
+                if (p.username == _user)
                 {
+                    if (p.password == _pass)
+                    {
+                        // Successful
+                        SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.Success.ToString(), id);
+                        
+                    }
+                    else
+                    {
+                        // Correct username but wrong password
+                        SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.WrongPassword.ToString(), id);
+                    }
+
                     wasFound = true;
                     break;
-                }
-                else
-                {
-                    // If password is wrong
-                    if (p.username == _user && p.password != _pass)
-                        wrongpass = true;
-                    // If user is wrong
-                    else if (p.username != _user && (p.password == _pass || p.password != _pass))
-                        wronguser = true;
-
                 }
             }
 
             // If the user name was found
-            if (wasFound)
+            if (!wasFound)
             {
 
-                SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.Success.ToString(), id);
-                //playerAccounts.AddLast(new PlayerAccount(_user, _pass));
-            }
-            else
-            {
-                if (wronguser)
-                    SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.WrongName.ToString(), id);
-                else if (wrongpass)
-                    SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.WrongPassword.ToString(), id);
+                SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.WrongName.ToString(), id);
             }
         }
 
