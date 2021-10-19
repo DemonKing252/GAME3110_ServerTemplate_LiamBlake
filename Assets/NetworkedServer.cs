@@ -1,12 +1,10 @@
-using System.Collections;
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using UnityEngine;
-using UnityEngine.Networking;
-using System.IO;
-using UnityEngine.UI;
-using System;
 using UnityEngine.Assertions;
+using UnityEngine.Networking;
 
 public static class ClientToServerSignifier
 {
@@ -95,12 +93,25 @@ public class BoardView
 [System.Serializable]
 public class GameSession
 {
+    public char playerTurn;
     public int playerId1;
     public int playerId2;
     public BoardView board = new BoardView();
 
     public GameSession(int id1, int id2)
     {
+        // randomize who goes first
+        int turn = UnityEngine.Random.Range(1, 3);
+        if (turn == 1)
+        {
+            playerTurn = 'X';
+        }
+        else
+        {
+            playerTurn = 'O';
+        }
+
+
         playerId1 = id1;
         playerId2 = id2;
     }
@@ -407,8 +418,8 @@ public class NetworkedServer : MonoBehaviour
 
                 sessions.Add(gs);
 
-                SendMessageToClient(ServerToClientSignifier.GameSessionStarted.ToString() + "," + sessions.Count.ToString() + ",X", id);
-                SendMessageToClient(ServerToClientSignifier.GameSessionStarted.ToString() + "," + sessions.Count.ToString() + ",O", playerwaitingformatch);
+                SendMessageToClient(ServerToClientSignifier.GameSessionStarted.ToString() + "," + sessions.Count.ToString() + ",X," + gs.playerTurn, id);
+                SendMessageToClient(ServerToClientSignifier.GameSessionStarted.ToString() + "," + sessions.Count.ToString() + ",O," + gs.playerTurn, playerwaitingformatch);
 
                 playerwaitingformatch = -1;
 
@@ -453,8 +464,10 @@ public class NetworkedServer : MonoBehaviour
                     index++;
                 }
 
-                // Send back to all clients
-                string _msg = ServerToClientSignifier.UpdateBoardOnClientSide.ToString() + ",";
+                gs.playerTurn = (gs.playerTurn == 'X' ? 'O' : 'X');
+
+                // Inform the new board changes, and update who should have authority to go next
+                string _msg = ServerToClientSignifier.UpdateBoardOnClientSide.ToString() + "," + gs.playerTurn.ToString() + ",";
 
                 foreach(string s in gs.board.slots)
                 {
