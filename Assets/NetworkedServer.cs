@@ -27,6 +27,8 @@ public static class ServerToClientSignifier
 
     public const int OpponentTicTacToePlay = 104;
     public const int UpdateBoardOnClientSide = 105;
+    public const int VerifyConnection = 106;
+
 
 }
 
@@ -288,6 +290,10 @@ public class NetworkedServer : MonoBehaviour
             // handle observers here...
             
         }
+
+        string _msg = ServerToClientSignifier.VerifyConnection.ToString() + ",";
+        SendMessageToClient(_msg, recConnectionId);
+
     }
     private void OnClientDisconnected(int recConnectionId)
     {
