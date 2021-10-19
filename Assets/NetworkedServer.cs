@@ -6,17 +6,27 @@ using UnityEngine.Networking;
 using System.IO;
 using UnityEngine.UI;
 using System;
+using UnityEngine.Assertions;
 
 public static class ClientToServerSignifier
 {
     public const int Login = 1;
     public const int CreateAccount = 2;
 
+    public const int AddToGameSessionQueue = 3;
+    public const int TicTacToePlay = 4;
+    public const int UpdateBoard = 5;
+
 }
 public static class ServerToClientSignifier
 {
     public const int LoginResponse = 101;
     public const int CreateResponse = 102;
+
+    public const int GameSessionStarted = 103;
+
+    public const int OpponentTicTacToePlay = 104;
+    public const int UpdateBoardOnClientSide = 105;
 
 }
 
@@ -36,6 +46,8 @@ public static class CreateResponse
 }
 
 
+
+
 // So I can view it from the inspector
 public class PlayerAccount
 {
@@ -50,10 +62,65 @@ public class PlayerAccount
 
 }
 
+[System.Serializable]
+public class Client
+{
+    public int connectionId;
+    public string username;
+    public bool loggedin = false;
+}
+
+[System.Serializable]
+public class BoardView
+{
+    public string[] slots = new string[9]
+    {
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+    };
+    public BoardView()
+    {
+        
+    }
+}
+[System.Serializable]
+public class GameSession
+{
+    public int playerId1;
+    public int playerId2;
+    public BoardView board = new BoardView();
+
+    public GameSession(int id1, int id2)
+    {
+        playerId1 = id1;
+        playerId2 = id2;
+    }
+
+}
+
+
 public class NetworkedServer : MonoBehaviour
 {
+    [SerializeField]
+    private List<Client> clients = new List<Client>();
+
+    [SerializeField]
+    private Client player1 = null;
+
+    [SerializeField]
+    private Client player2 = null;
 
 
+
+    [SerializeField]
+    private List<GameSession> sessions = new List<GameSession>();
 
     int maxConnections = 1000;
     int reliableChannelID;
@@ -64,6 +131,7 @@ public class NetworkedServer : MonoBehaviour
     private string path;
 
     private LinkedList<PlayerAccount> playerAccounts = new LinkedList<PlayerAccount>();
+    private int playerwaitingformatch = -1;
 
     // Start is called before the first frame update
     void Start()
@@ -177,14 +245,17 @@ public class NetworkedServer : MonoBehaviour
             case NetworkEventType.Nothing:
                 break;
             case NetworkEventType.ConnectEvent:
-                Debug.Log("Connection, " + recConnectionID);
+
+                OnClientConnected(recConnectionID);
+
                 break;
             case NetworkEventType.DataEvent:
                 string msg = Encoding.Unicode.GetString(recBuffer, 0, dataSize);
                 ProcessRecievedMsg(msg, recConnectionID);
                 break;
             case NetworkEventType.DisconnectEvent:
-                Debug.Log("Disconnection, " + recConnectionID);
+                OnClientDisconnected(recConnectionID);
+
                 break;
         }
 
@@ -196,6 +267,41 @@ public class NetworkedServer : MonoBehaviour
         byte[] buffer = Encoding.Unicode.GetBytes(msg);
         NetworkTransport.Send(hostID, id, reliableChannelID, buffer, msg.Length * sizeof(char), out error);
     }
+    private void OnClientConnected(int recConnectionId)
+    {
+        Debug.Log("Connection, " + recConnectionId);
+
+        Client temp = new Client();
+        temp.connectionId = recConnectionId;
+        clients.Add(temp);
+    
+        if (clients.Count == 1)
+        {
+            player1 = temp;
+        }
+        else if (clients.Count == 2)
+        {
+            player2 = temp;
+        }
+        else if (clients.Count >= 3)
+        {
+            // handle observers here...
+            
+        }
+    }
+    private void OnClientDisconnected(int recConnectionId)
+    {
+        Debug.Log("Disconnection, " + recConnectionId);
+
+        foreach (Client c in clients)
+        {
+            if (c.connectionId == recConnectionId)
+            {
+                clients.Remove(c);
+                break;
+            }
+        }
+    }
 
     private void ProcessRecievedMsg(string msg, int id)
     {
@@ -205,11 +311,11 @@ public class NetworkedServer : MonoBehaviour
 
         int signifier = int.Parse(data[0]);
 
-        string _user = data[1];
-        string _pass = data[2];
 
         if (signifier == ClientToServerSignifier.CreateAccount)
         {
+            string _user = data[1];
+            string _pass = data[2];
 
             bool wasFound = false;
             foreach(PlayerAccount p in playerAccounts)
@@ -235,6 +341,8 @@ public class NetworkedServer : MonoBehaviour
         }
         else if (signifier == ClientToServerSignifier.Login)
         {
+            string _user = data[1];
+            string _pass = data[2];
             //                      why is this true?
             // assume that by default, if a user is not found, it cleary doesn't exist
             // this loop only checks if its the WRONG user, not if it DOESNT exist
@@ -249,6 +357,14 @@ public class NetworkedServer : MonoBehaviour
                 {
                     if (p.password == _pass)
                     {
+                        foreach(Client c in clients)
+                        {
+                            if (c.connectionId == id)
+                            {
+                                c.username = p.username;
+                                c.loggedin = true;
+                            }
+                        }
                         // Successful
                         SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.Success.ToString(), id);
                         
@@ -271,6 +387,93 @@ public class NetworkedServer : MonoBehaviour
                 SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.WrongName.ToString(), id);
             }
         }
+        else if (signifier == ClientToServerSignifier.AddToGameSessionQueue)
+        {
+            // first player waiting
+            if (playerwaitingformatch == -1)
+            {
+                playerwaitingformatch = id;            
+            }
+            // player is waiting, and a new client has joined, so we can create the game session.
+            else
+            {
+                GameSession gs = new GameSession(playerwaitingformatch, id);
 
+                sessions.Add(gs);
+
+                SendMessageToClient(ServerToClientSignifier.GameSessionStarted.ToString() + "," + sessions.Count.ToString() + ",X", id);
+                SendMessageToClient(ServerToClientSignifier.GameSessionStarted.ToString() + "," + sessions.Count.ToString() + ",O", playerwaitingformatch);
+
+                playerwaitingformatch = -1;
+
+                // there is a waiting player, join
+            }
+
+        }
+        else if (signifier == ClientToServerSignifier.TicTacToePlay)
+        {
+            GameSession gs = FindGameSessionWithPlayerID(id);
+            
+            if (gs != null)
+            {
+                SendMessageToClient(ServerToClientSignifier.OpponentTicTacToePlay.ToString() + "," + "hello from server", gs.playerId1);
+                SendMessageToClient(ServerToClientSignifier.OpponentTicTacToePlay.ToString() + "," + "hello from server", gs.playerId2);
+
+            }
+
+            //if (gs.playerId1 == id)
+            //{
+            //    SendMessageToClient(ServerToClientSignifier.OpponentTicTacToePlay.ToString() + ",", gs.playerId1);
+            //}
+            //else
+            //{
+            //    SendMessageToClient(ServerToClientSignifier.OpponentTicTacToePlay.ToString() + ",", gs.playerId2);
+            //}
+        }
+        else if (signifier == ClientToServerSignifier.UpdateBoard)
+        {
+            Debug.Log("Updating board . . .");
+
+            GameSession gs = FindGameSessionWithPlayerID(id);
+            Assert.IsNotNull(gs, "Error: game session was null!");
+
+            try
+            {
+                // Update board UI here.
+                int index = 1;
+                for (int i = 0; i < 9; i++)
+                {
+                    gs.board.slots[i] = data[index];
+                    index++;
+                }
+
+                // Send back to all clients
+                string _msg = ServerToClientSignifier.UpdateBoardOnClientSide.ToString() + ",";
+
+                foreach(string s in gs.board.slots)
+                {
+                    _msg += s + ",";
+
+                }
+                SendMessageToClient(_msg, gs.playerId1);
+                SendMessageToClient(_msg, gs.playerId2);
+
+            }
+            catch(Exception e)
+            {
+                Debug.LogError("Error when updating board: " + e.Message);
+            }
+        }
+    }
+    private GameSession FindGameSessionWithPlayerID(int id)
+    {
+        foreach(GameSession gs in sessions)
+        {
+            if (gs.playerId1 == id || gs.playerId2 == id)
+            {
+                return gs;
+            }
+        }
+        return null;
     }
 }
