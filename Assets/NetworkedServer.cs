@@ -49,6 +49,7 @@ public static class CreateResponse
 
 
 // So I can view it from the inspector
+[Serializable]
 public class PlayerAccount
 {
     public string username;
@@ -143,13 +144,14 @@ public class NetworkedServer : MonoBehaviour
 
     private string path;
 
+    [SerializeField]
     private LinkedList<PlayerAccount> playerAccounts = new LinkedList<PlayerAccount>();
     private int playerwaitingformatch = -1;
 
     // Start is called before the first frame update
     void Start()
     {
-        path = Application.dataPath + "/Resources/PlayerAccounts.txt";
+        path = Application.dataPath + Path.DirectorySeparatorChar + "Resources" + Path.DirectorySeparatorChar + "PlayerAccounts.txt";
         LoadAccounts();
         
         NetworkTransport.Init();
@@ -158,6 +160,8 @@ public class NetworkedServer : MonoBehaviour
         unreliableChannelID = config.AddChannel(QosType.Unreliable);
         HostTopology topology = new HostTopology(config, maxConnections);
         hostID = NetworkTransport.AddHost(topology, socketPort, null);
+
+
 
     }
     void OnApplicationQuit()
