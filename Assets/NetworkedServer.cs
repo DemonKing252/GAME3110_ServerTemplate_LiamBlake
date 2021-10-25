@@ -15,6 +15,8 @@ public static class ClientToServerSignifier
     public const int TicTacToePlay = 4;
     public const int UpdateBoard = 5;
 
+    public const int ChatMessage = 6;
+
 }
 public static class ServerToClientSignifier
 {
@@ -27,7 +29,20 @@ public static class ServerToClientSignifier
     public const int UpdateBoardOnClientSide = 105;
     public const int VerifyConnection = 106;
 
+    public const int MessageToClient = 107;
 
+
+}
+// manage sending our chat message to clients who we want to have authority 
+public static class MessageAuthority
+{
+    // These responses can be xxx digits, because they wont be checked anywhere else unless under the 
+    // condition of "ChatMessage" (signafier = 6)
+    // just to make sure though, im leaving a space of 50 between them.
+
+    public const int ToGameSession = 151;       // To clients in the game session
+    public const int ToObservers = 152;         // To observer clients
+    public const int ToOtherClients = 153;      // To game session clients
 }
 
 public static class LoginResponse
@@ -125,11 +140,6 @@ public class NetworkedServer : MonoBehaviour
     [SerializeField]
     private List<Client> clients = new List<Client>();
 
-    [SerializeField]
-    private Client player1 = null;
-
-    [SerializeField]
-    private Client player2 = null;
 
 
 
@@ -292,19 +302,20 @@ public class NetworkedServer : MonoBehaviour
         temp.connectionId = recConnectionId;
         clients.Add(temp);
     
-        if (clients.Count == 1)
-        {
-            player1 = temp;
-        }
-        else if (clients.Count == 2)
-        {
-            player2 = temp;
-        }
-        else if (clients.Count >= 3)
-        {
-            // handle observers here...
+
+        //if (clients.Count == 1)
+        //{
+        //    player1 = temp;
+        //}
+        //else if (clients.Count == 2)
+        //{
+        //    player2 = temp;
+        //}
+        //else if (clients.Count >= 3)
+        //{
+        //    // handle observers here...
             
-        }
+        //}
 
         string _msg = ServerToClientSignifier.VerifyConnection.ToString() + ",";
         SendMessageToClient(_msg, recConnectionId);
@@ -458,6 +469,9 @@ public class NetworkedServer : MonoBehaviour
             GameSession gs = FindGameSessionWithPlayerID(id);
             Assert.IsNotNull(gs, "Error: game session was null!");
 
+
+            // Doing a try-catch handler because array access by iteration can be flaky if not done properly,
+            // so decrypting this error will be alot easier!
             try
             {
                 // Update board UI here.
@@ -485,7 +499,58 @@ public class NetworkedServer : MonoBehaviour
             catch(Exception e)
             {
                 Debug.LogError("Error when updating board: " + e.Message);
+                Assert.IsNotNull(gs, "Error: game session was null!");
             }
+        }
+        else if (signifier == ClientToServerSignifier.ChatMessage)
+        {
+            GameSession gs = FindGameSessionWithPlayerID(id);
+
+            // send to game session
+
+
+            try
+            {
+
+                bool _togamesession = bool.Parse(data[1]);
+                bool _toobservers = bool.Parse(data[2]);
+                bool _to_otherclients = bool.Parse(data[3]);
+                
+                string _msg = ServerToClientSignifier.MessageToClient + "," + data[4];
+
+                if (_togamesession)
+                {
+                    SendMessageToClient(_msg, gs.playerId1);
+                    SendMessageToClient(_msg, gs.playerId2);
+                }
+                if (_toobservers)
+                {
+                    // handle sending to observers once we implement it . . .
+                }
+                if (_to_otherclients)
+                {
+                    foreach (GameSession g in sessions)
+                    {
+                        // we dont want to send a copy of our message to the same session, we already determined that
+                        // if we dont have this, then our current session will recieve a copy of the message twice.
+
+                        if (g.playerId1 != id && g.playerId2 != id)
+                        {
+
+                            SendMessageToClient(_msg, g.playerId1);
+                            SendMessageToClient(_msg, g.playerId2);
+                        }
+                    }
+                }
+            }
+            catch(Exception e)
+            {
+                Debug.LogError("Error when parsing authority options: " + e.Message);
+            }
+
+            
+
+
         }
     }
     private GameSession FindGameSessionWithPlayerID(int id)
