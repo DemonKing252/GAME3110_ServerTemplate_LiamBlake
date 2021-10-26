@@ -16,6 +16,7 @@ public static class ClientToServerSignifier
     public const int UpdateBoard = 5;
 
     public const int ChatMessage = 6;
+    public const int AddToObserverSessionQueue = 7;
 
 }
 public static class ServerToClientSignifier
@@ -30,6 +31,10 @@ public static class ServerToClientSignifier
     public const int VerifyConnection = 106;
 
     public const int MessageToClient = 107;
+    public const int UpdateSessions = 108;
+
+    public const int ConfirmObserver = 109;
+
 
 
 }
@@ -112,6 +117,8 @@ public class GameSession
     public char playerTurn;
     public int playerId1;
     public int playerId2;
+    public List<int> observerIds = new List<int>();
+
     public BoardView board = new BoardView();
 
     public GameSession(int id1, int id2)
@@ -301,8 +308,9 @@ public class NetworkedServer : MonoBehaviour
         Client temp = new Client();
         temp.connectionId = recConnectionId;
         clients.Add(temp);
-    
 
+
+        NotifyClientsAboutSessionUpdate();
         //if (clients.Count == 1)
         //{
         //    player1 = temp;
@@ -314,7 +322,7 @@ public class NetworkedServer : MonoBehaviour
         //else if (clients.Count >= 3)
         //{
         //    // handle observers here...
-            
+
         //}
 
         string _msg = ServerToClientSignifier.VerifyConnection.ToString() + ",";
@@ -424,7 +432,7 @@ public class NetworkedServer : MonoBehaviour
             // first player waiting
             if (playerwaitingformatch == -1)
             {
-                playerwaitingformatch = id;            
+                playerwaitingformatch = id;
             }
             // player is waiting, and a new client has joined, so we can create the game session.
             else
@@ -435,6 +443,12 @@ public class NetworkedServer : MonoBehaviour
 
                 SendMessageToClient(ServerToClientSignifier.GameSessionStarted.ToString() + "," + sessions.Count.ToString() + ",X," + gs.playerTurn, id);
                 SendMessageToClient(ServerToClientSignifier.GameSessionStarted.ToString() + "," + sessions.Count.ToString() + ",O," + gs.playerTurn, playerwaitingformatch);
+
+                // We have to nofify all clients.
+                // Theres no point in waiting for a client to start observing before we notify them about the 
+                // sessions in queue.
+                NotifyClientsAboutSessionUpdate();
+                
 
                 playerwaitingformatch = -1;
 
@@ -474,26 +488,20 @@ public class NetworkedServer : MonoBehaviour
             // so decrypting this error will be alot easier!
             try
             {
-                // Update board UI here.
-                int index = 1;
-                for (int i = 0; i < 9; i++)
-                {
-                    gs.board.slots[i] = data[index];
-                    index++;
-                }
 
-                gs.playerTurn = (gs.playerTurn == 'X' ? 'O' : 'X');
+                // ------------------------------------------
+                // Notify all clients and observers
 
-                // Inform the new board changes, and update who should have authority to go next
-                string _msg = ServerToClientSignifier.UpdateBoardOnClientSide.ToString() + "," + gs.playerTurn.ToString() + ",";
+                UpdateBoardUI(gs, data);
+                string _msg = GetParsedBoardData(gs);
 
-                foreach(string s in gs.board.slots)
-                {
-                    _msg += s + ",";
-
-                }
                 SendMessageToClient(_msg, gs.playerId1);
                 SendMessageToClient(_msg, gs.playerId2);
+
+                foreach(int observerId in gs.observerIds)
+                {
+                    SendMessageToClient(_msg, observerId);
+                }
 
             }
             catch(Exception e)
@@ -506,6 +514,7 @@ public class NetworkedServer : MonoBehaviour
         {
             GameSession gs = FindGameSessionWithPlayerID(id);
 
+            Assert.IsNotNull(gs, "Error, game session was null when recieving chat message");
             // send to game session
 
 
@@ -526,6 +535,10 @@ public class NetworkedServer : MonoBehaviour
                 if (_toobservers)
                 {
                     // handle sending to observers once we implement it . . .
+                    foreach(int observerId in gs.observerIds)
+                    {
+                        SendMessageToClient(_msg, observerId);
+                    }
                 }
                 if (_to_otherclients)
                 {
@@ -534,7 +547,7 @@ public class NetworkedServer : MonoBehaviour
                         // we dont want to send a copy of our message to the same session, we already determined that
                         // if we dont have this, then our current session will recieve a copy of the message twice.
 
-                        if (g.playerId1 != id && g.playerId2 != id)
+                        if (g.playerId1 != id && g.playerId2 != id && !ObserverExistsInThisSession(gs, id))
                         {
 
                             SendMessageToClient(_msg, g.playerId1);
@@ -552,7 +565,45 @@ public class NetworkedServer : MonoBehaviour
 
 
         }
+        else if (signifier == ClientToServerSignifier.AddToObserverSessionQueue)
+        {
+            int sessionIndex = int.Parse(data[1]);
+            Assert.IsTrue(sessionIndex <= sessions.Count - 1, "Error: Out of bounds except when adding observer to session queue!");
+
+            sessions[sessionIndex].observerIds.Add(id);
+
+            string _msg = GetParsedBoardData(sessions[sessionIndex]);
+
+            // This should not throw, otherwise we have a logic error, so im adding this in:
+            SendMessageToClient(ServerToClientSignifier.ConfirmObserver + ",", id);
+            SendMessageToClient(_msg, id);
+        }
     }
+
+    public bool ObserverExistsInThisSession(GameSession gs, int id)
+    {
+        foreach(int i in gs.observerIds)
+        {
+            if (i == id)
+                return true;
+        }
+        return false;
+    }
+
+    public void NotifyClientsAboutSessionUpdate()
+    {
+        string _msg = ServerToClientSignifier.UpdateSessions + "," + sessions.Count + ",";
+        for (int i = 0; i < sessions.Count; i++)
+        {
+            _msg += i.ToString() + ",";
+        }
+
+        foreach (Client c in clients)
+        {
+            SendMessageToClient(_msg, c.connectionId);
+        }
+    }
+
     private GameSession FindGameSessionWithPlayerID(int id)
     {
         foreach(GameSession gs in sessions)
@@ -561,7 +612,39 @@ public class NetworkedServer : MonoBehaviour
             {
                 return gs;
             }
+            foreach(int observerId in gs.observerIds)
+            {
+                if (observerId == id)
+                    return gs;
+            }
         }
         return null;
     }
+    public void UpdateBoardUI(GameSession gs, string[] data)
+    {
+        // Update board UI here.
+        int index = 1;
+        for (int i = 0; i < 9; i++)
+        {
+            gs.board.slots[i] = data[index];
+            index++;
+        }
+
+        gs.playerTurn = (gs.playerTurn == 'X' ? 'O' : 'X');
+
+        
+    }
+    public string GetParsedBoardData(GameSession gs)
+    {
+        // Inform the new board changes, and update who should have authority to go next
+        string _msg = ServerToClientSignifier.UpdateBoardOnClientSide.ToString() + "," + gs.playerTurn.ToString() + ",";
+
+        foreach (string s in gs.board.slots)
+        {
+            _msg += s + ",";
+
+        }
+        return _msg;
+    }
+
 }
