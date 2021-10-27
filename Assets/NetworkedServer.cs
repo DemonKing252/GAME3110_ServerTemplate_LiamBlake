@@ -17,6 +17,8 @@ public static class ClientToServerSignifier
 
     public const int ChatMessage = 6;
     public const int AddToObserverSessionQueue = 7;
+    public const int LeaveSession = 8;
+    public const int LeaveServer = 9;
 
 }
 public static class ServerToClientSignifier
@@ -35,7 +37,7 @@ public static class ServerToClientSignifier
 
     public const int ConfirmObserver = 109;
 
-
+    public const int PlayerDisconnected = 110;
 
 }
 // manage sending our chat message to clients who we want to have authority 
@@ -147,9 +149,6 @@ public class NetworkedServer : MonoBehaviour
     [SerializeField]
     private List<Client> clients = new List<Client>();
 
-
-
-
     [SerializeField]
     private List<GameSession> sessions = new List<GameSession>();
 
@@ -170,7 +169,7 @@ public class NetworkedServer : MonoBehaviour
     {
         path = Application.dataPath + Path.DirectorySeparatorChar + "Resources" + Path.DirectorySeparatorChar + "PlayerAccounts.txt";
         LoadAccounts();
-        
+
         NetworkTransport.Init();
         ConnectionConfig config = new ConnectionConfig();
         reliableChannelID = config.AddChannel(QosType.Reliable);
@@ -202,9 +201,9 @@ public class NetworkedServer : MonoBehaviour
             }
             sw.WriteLine(data);
             sw.Close();
-            
+
         }
-        catch(Exception e)
+        catch (Exception e)
         {
             Debug.LogError("ERROR when saving: " + e.Message);
         }
@@ -220,7 +219,7 @@ public class NetworkedServer : MonoBehaviour
                 StreamReader sr = new StreamReader(path);
 
                 string rawdata;
-                
+
                 rawdata = sr.ReadLine();
 
                 if (rawdata == null)
@@ -332,15 +331,37 @@ public class NetworkedServer : MonoBehaviour
     private void OnClientDisconnected(int recConnectionId)
     {
         Debug.Log("Disconnection, " + recConnectionId);
+        //
+        //GameSession gs = FindGameSessionWithPlayerID(recConnectionId);
+        //
+        //// If a client leaves, the session gets destroyed because the game cant continue with 1 client (observers dont matter)
+        //// Because of this, the game session is now null, and if the second client wants to quit, this will throw
+        //// an exception because the client id in game session no longer exists.
+        //// Thats why we need this.
+        //
+        //if (gs != null)
+        //{
+        //    string _disconnectMsg = ServerToClientSignifier.PlayerDisconnected + ",";   // We always need the comma, or else were going to read garbage data which will cause a lot of problems
+        //
+        //    if (gs.playerId1 != recConnectionId)// we dont want to send it to the same person that quit
+        //        SendMessageToClient(_disconnectMsg, gs.playerId1);
+        //
+        //    if (gs.playerId2 != recConnectionId)// we dont want to send it to the same person that quit
+        //        SendMessageToClient(_disconnectMsg, gs.playerId2);
+        //
+        //    foreach (int observerId in gs.observerIds)
+        //        if (observerId != recConnectionId)// we dont want to send it to the same person that quit
+        //            SendMessageToClient(_disconnectMsg, observerId);
+        //
+        //    sessions.Remove(gs);
+        //
+        //}
+        //RemoveClientAt(recConnectionId);
+        //
+        //// Refresh the sessions available on client side
+        //NotifyClientsAboutSessionUpdate();
 
-        foreach (Client c in clients)
-        {
-            if (c.connectionId == recConnectionId)
-            {
-                clients.Remove(c);
-                break;
-            }
-        }
+
     }
 
     private void ProcessRecievedMsg(string msg, int id)
@@ -358,7 +379,7 @@ public class NetworkedServer : MonoBehaviour
             string _pass = data[2];
 
             bool wasFound = false;
-            foreach(PlayerAccount p in playerAccounts)
+            foreach (PlayerAccount p in playerAccounts)
             {
                 if (p.username == _user)
                 {
@@ -397,7 +418,7 @@ public class NetworkedServer : MonoBehaviour
                 {
                     if (p.password == _pass)
                     {
-                        foreach(Client c in clients)
+                        foreach (Client c in clients)
                         {
                             if (c.connectionId == id)
                             {
@@ -407,7 +428,7 @@ public class NetworkedServer : MonoBehaviour
                         }
                         // Successful
                         SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.Success.ToString(), id);
-                        
+
                     }
                     else
                     {
@@ -448,7 +469,7 @@ public class NetworkedServer : MonoBehaviour
                 // Theres no point in waiting for a client to start observing before we notify them about the 
                 // sessions in queue.
                 NotifyClientsAboutSessionUpdate();
-                
+
 
                 playerwaitingformatch = -1;
 
@@ -459,7 +480,7 @@ public class NetworkedServer : MonoBehaviour
         else if (signifier == ClientToServerSignifier.TicTacToePlay)
         {
             GameSession gs = FindGameSessionWithPlayerID(id);
-            
+
             if (gs != null)
             {
                 SendMessageToClient(ServerToClientSignifier.OpponentTicTacToePlay.ToString() + "," + "hello from server", gs.playerId1);
@@ -498,13 +519,13 @@ public class NetworkedServer : MonoBehaviour
                 SendMessageToClient(_msg, gs.playerId1);
                 SendMessageToClient(_msg, gs.playerId2);
 
-                foreach(int observerId in gs.observerIds)
+                foreach (int observerId in gs.observerIds)
                 {
                     SendMessageToClient(_msg, observerId);
                 }
 
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 Debug.LogError("Error when updating board: " + e.Message);
                 Assert.IsNotNull(gs, "Error: game session was null!");
@@ -524,7 +545,7 @@ public class NetworkedServer : MonoBehaviour
                 bool _togamesession = bool.Parse(data[1]);
                 bool _toobservers = bool.Parse(data[2]);
                 bool _to_otherclients = bool.Parse(data[3]);
-                
+
                 string _msg = ServerToClientSignifier.MessageToClient + "," + data[4];
 
                 if (_togamesession)
@@ -535,7 +556,7 @@ public class NetworkedServer : MonoBehaviour
                 if (_toobservers)
                 {
                     // handle sending to observers once we implement it . . .
-                    foreach(int observerId in gs.observerIds)
+                    foreach (int observerId in gs.observerIds)
                     {
                         SendMessageToClient(_msg, observerId);
                     }
@@ -556,12 +577,12 @@ public class NetworkedServer : MonoBehaviour
                     }
                 }
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 Debug.LogError("Error when parsing authority options: " + e.Message);
             }
 
-            
+
 
 
         }
@@ -578,16 +599,128 @@ public class NetworkedServer : MonoBehaviour
             SendMessageToClient(ServerToClientSignifier.ConfirmObserver + ",", id);
             SendMessageToClient(_msg, id);
         }
+        else if (signifier == ClientToServerSignifier.LeaveSession)
+        {
+            GameSession gs = FindGameSessionWithPlayerID(id);
+
+            // If a client leaves, the session gets destroyed because the game cant continue with 1 client (observers dont matter)
+            // Because of this, the game session is now null, and if the second client wants to quit, this will throw
+            // an exception because the client id in game session no longer exists.
+            // Thats why we need this.
+
+            bool IsObserver = bool.Parse(data[1]);
+
+            // If were a player, we end the session, because the game is over
+            // General rule is you cant let someone else take over the game session
+            // Because that makes for an unfair game
+            
+            if (gs != null && !IsObserver)
+            {
+                string _disconnectMsg = ServerToClientSignifier.PlayerDisconnected + ",";   // We always need the comma, or else were going to read garbage data which will cause a lot of problems
+
+                if (gs.playerId1 != id)// we dont want to send it to the same person that quit
+                    SendMessageToClient(_disconnectMsg, gs.playerId1);
+
+                if (gs.playerId2 != id)// we dont want to send it to the same person that quit
+                    SendMessageToClient(_disconnectMsg, gs.playerId2);
+
+                foreach (int observerId in gs.observerIds)
+                    if (observerId != id)// we dont want to send it to the same person that quit
+                        SendMessageToClient(_disconnectMsg, observerId);
+
+                sessions.Remove(gs);
+
+            }
+            // If the player leaving is an observer, remove there id from the list, but the session continues as normal
+            if (IsObserver && gs != null)
+            {
+                foreach(int observerId in gs.observerIds)
+                {
+                    if (observerId == id)
+                    {
+                        gs.observerIds.Remove(observerId);
+                        break;
+                    }
+                }
+            }
+
+
+            // Refresh the sessions available on client side
+            NotifyClientsAboutSessionUpdate();
+
+        }
+        else if (signifier == ClientToServerSignifier.LeaveServer)
+        {
+            GameSession gs = FindGameSessionWithPlayerID(id);
+
+            // If a client leaves, the session gets destroyed because the game cant continue with 1 client (observers dont matter)
+            // Because of this, the game session is now null, and if the second client wants to quit, this will throw
+            // an exception because the client id in game session no longer exists.
+            // Thats why we need this.
+
+            bool IsObserver = bool.Parse(data[1]);
+
+            // If were a player, we end the session, because the game is over
+            // General rule is you cant let someone else take over the game session
+            // Because that makes for an unfair game
+
+            if (gs != null && !IsObserver)
+            {
+                string _disconnectMsg = ServerToClientSignifier.PlayerDisconnected + ",";   // We always need the comma, or else were going to read garbage data which will cause a lot of problems
+
+                if (gs.playerId1 != id)// we dont want to send it to the same person that quit
+                    SendMessageToClient(_disconnectMsg, gs.playerId1);
+
+                if (gs.playerId2 != id)// we dont want to send it to the same person that quit
+                    SendMessageToClient(_disconnectMsg, gs.playerId2);
+
+                foreach (int observerId in gs.observerIds)
+                    if (observerId != id)// we dont want to send it to the same person that quit
+                        SendMessageToClient(_disconnectMsg, observerId);
+
+                sessions.Remove(gs);
+
+            }
+            // If the player leaving is an observer, remove there id from the list, but the session continues as normal
+            if (IsObserver && gs != null)
+            {
+                foreach (int observerId in gs.observerIds)
+                {
+                    if (observerId == id)
+                    {
+                        gs.observerIds.Remove(observerId);
+                        break;
+                    }
+                }
+            }
+
+            // Remove the client from our list
+            RemoveClientAt(id);
+
+            // Refresh the sessions available on client side
+            NotifyClientsAboutSessionUpdate();
+        }
     }
 
     public bool ObserverExistsInThisSession(GameSession gs, int id)
     {
-        foreach(int i in gs.observerIds)
+        foreach (int i in gs.observerIds)
         {
             if (i == id)
                 return true;
         }
         return false;
+    }
+    public void RemoveClientAt(int id)
+    {
+        foreach (Client c in clients)
+        {
+            if (c.connectionId == id)
+            {
+                clients.Remove(c);
+                break;
+            }
+        }
     }
 
     public void NotifyClientsAboutSessionUpdate()
