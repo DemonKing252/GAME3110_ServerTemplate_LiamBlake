@@ -20,6 +20,9 @@ public static class ClientToServerSignifier
     public const int LeaveSession = 8;
     public const int LeaveServer = 9;
 
+    public const int SendRecord = 10;
+    public const int RecordSendingDone = 11;
+
 }
 public static class ServerToClientSignifier
 {
@@ -38,6 +41,10 @@ public static class ServerToClientSignifier
     public const int ConfirmObserver = 109;
 
     public const int PlayerDisconnected = 110;
+
+    public const int SendRecording = 111;
+    public const int QueueEndOfRecord = 112;
+    public const int QueueStartOfRecordings = 113;
 
 }
 // manage sending our chat message to clients who we want to have authority 
@@ -143,9 +150,55 @@ public class GameSession
 
 }
 
+[System.Serializable]
+public class Record
+{
+    public char[] slots = new char[9]
+    {
+        ' ',
+        ' ',
+        ' ',
+        ' ',
+        ' ',
+        ' ',
+        ' ',
+        ' ',
+        ' ',
+    };
+    public Record()
+    {
+
+    }
+    public string GetParsedData()
+    {
+        string temp = "";
+        foreach (char s in slots)
+        {
+            temp += s.ToString() + "|";
+        }
+
+        return temp;
+    }
+}
+
+[System.Serializable]
+public class Recording
+{
+    public List<Record> records = new List<Record>();
+}
+
 
 public class NetworkedServer : MonoBehaviour
 {
+    // This list is for reading sub divided record data.
+    [SerializeField]
+    private List<Record> clientRecords = new List<Record>();
+
+    // This list is for the actual records that have been recorded.
+
+    [SerializeField]
+    private List<Recording> recordings = new List<Recording>();
+
     [SerializeField]
     private List<Client> clients = new List<Client>();
 
@@ -164,9 +217,16 @@ public class NetworkedServer : MonoBehaviour
     private LinkedList<PlayerAccount> playerAccounts = new LinkedList<PlayerAccount>();
     private int playerwaitingformatch = -1;
 
+
+    private const int recordSize = 52;
+    private int MaxElementsPerRecord;
+
     // Start is called before the first frame update
     void Start()
     {
+        // Maximum number of elements we can specify in one packet
+        MaxElementsPerRecord = Mathf.FloorToInt((float)1024 / (float)recordSize);
+
         path = Application.dataPath + Path.DirectorySeparatorChar + "Resources" + Path.DirectorySeparatorChar + "PlayerAccounts.txt";
         LoadAccounts();
 
@@ -284,7 +344,7 @@ public class NetworkedServer : MonoBehaviour
                 break;
             case NetworkEventType.DataEvent:
                 string msg = Encoding.Unicode.GetString(recBuffer, 0, dataSize);
-                ProcessRecievedMsg(msg, recConnectionID);
+                ProcessRecievedMsg(msg, recConnectionID, dataSize);
                 break;
             case NetworkEventType.DisconnectEvent:
                 OnClientDisconnected(recConnectionID);
@@ -308,21 +368,12 @@ public class NetworkedServer : MonoBehaviour
         temp.connectionId = recConnectionId;
         clients.Add(temp);
 
-
+        // Nofify clients about sessions
         NotifyClientsAboutSessionUpdate();
-        //if (clients.Count == 1)
-        //{
-        //    player1 = temp;
-        //}
-        //else if (clients.Count == 2)
-        //{
-        //    player2 = temp;
-        //}
-        //else if (clients.Count >= 3)
-        //{
-        //    // handle observers here...
 
-        //}
+        // Notify clients about recordings
+        NotifyClientsAboutNewRecordings();
+        
 
         string _msg = ServerToClientSignifier.VerifyConnection.ToString() + ",";
         SendMessageToClient(_msg, recConnectionId);
@@ -331,40 +382,10 @@ public class NetworkedServer : MonoBehaviour
     private void OnClientDisconnected(int recConnectionId)
     {
         Debug.Log("Disconnection, " + recConnectionId);
-        //
-        //GameSession gs = FindGameSessionWithPlayerID(recConnectionId);
-        //
-        //// If a client leaves, the session gets destroyed because the game cant continue with 1 client (observers dont matter)
-        //// Because of this, the game session is now null, and if the second client wants to quit, this will throw
-        //// an exception because the client id in game session no longer exists.
-        //// Thats why we need this.
-        //
-        //if (gs != null)
-        //{
-        //    string _disconnectMsg = ServerToClientSignifier.PlayerDisconnected + ",";   // We always need the comma, or else were going to read garbage data which will cause a lot of problems
-        //
-        //    if (gs.playerId1 != recConnectionId)// we dont want to send it to the same person that quit
-        //        SendMessageToClient(_disconnectMsg, gs.playerId1);
-        //
-        //    if (gs.playerId2 != recConnectionId)// we dont want to send it to the same person that quit
-        //        SendMessageToClient(_disconnectMsg, gs.playerId2);
-        //
-        //    foreach (int observerId in gs.observerIds)
-        //        if (observerId != recConnectionId)// we dont want to send it to the same person that quit
-        //            SendMessageToClient(_disconnectMsg, observerId);
-        //
-        //    sessions.Remove(gs);
-        //
-        //}
-        //RemoveClientAt(recConnectionId);
-        //
-        //// Refresh the sessions available on client side
-        //NotifyClientsAboutSessionUpdate();
-
-
+        
     }
 
-    private void ProcessRecievedMsg(string msg, int id)
+    private void ProcessRecievedMsg(string msg, int id, int size)
     {
         Debug.Log("msg recieved = " + msg + ".  connection id = " + id);
 
@@ -462,8 +483,8 @@ public class NetworkedServer : MonoBehaviour
 
                 sessions.Add(gs);
 
-                SendMessageToClient(ServerToClientSignifier.GameSessionStarted.ToString() + "," + sessions.Count.ToString() + ",X," + gs.playerTurn, id);
-                SendMessageToClient(ServerToClientSignifier.GameSessionStarted.ToString() + "," + sessions.Count.ToString() + ",O," + gs.playerTurn, playerwaitingformatch);
+                SendMessageToClient(ServerToClientSignifier.GameSessionStarted.ToString() + "," + sessions.Count.ToString() + ",X," + gs.playerTurn + ",1", id);
+                SendMessageToClient(ServerToClientSignifier.GameSessionStarted.ToString() + "," + sessions.Count.ToString() + ",O," + gs.playerTurn + ",2", playerwaitingformatch);
 
                 // We have to nofify all clients.
                 // Theres no point in waiting for a client to start observing before we notify them about the 
@@ -700,6 +721,57 @@ public class NetworkedServer : MonoBehaviour
             // Refresh the sessions available on client side
             NotifyClientsAboutSessionUpdate();
         }
+        else if (signifier == ClientToServerSignifier.SendRecord)
+        {
+            Debug.Log("Size of this record is: " + size.ToString());
+
+
+
+            int index = 2;
+            int numSubDivisions = int.Parse(data[1]);
+            for(int i = 0; i < numSubDivisions; i++)
+            {
+                string[] boardData = data[index].Split('|');
+                Record r = new Record();
+
+                // using index 0 will allow you to get the character in the string (index 0)
+                r.slots[0] = boardData[0][0];  // characters
+                r.slots[1] = boardData[1][0];  // characters
+                r.slots[2] = boardData[2][0];  // characters
+                r.slots[3] = boardData[3][0];  // characters
+                r.slots[4] = boardData[4][0];  // characters
+                r.slots[5] = boardData[5][0];  // characters
+                r.slots[6] = boardData[6][0];  // characters
+                r.slots[7] = boardData[7][0];  // characters
+                r.slots[8] = boardData[8][0];  // characters
+
+                index++;
+
+                clientRecords.Add(r);
+            }
+
+
+        }
+        else if (signifier == ClientToServerSignifier.RecordSendingDone)
+        {
+            Recording recording = new Recording();
+
+            // Copy the list over.
+            Record[] tempRecords = new Record[clientRecords.Count];
+            clientRecords.CopyTo(tempRecords, 0);
+
+            foreach (Record r in tempRecords)
+                recording.records.Add(r);
+
+            // Add our recording
+            recordings.Add(recording);
+
+            // Clear the list for the next client.
+            clientRecords.Clear();
+
+            // Send a copy of our recordings back to every client so they have them.
+            NotifyClientsAboutNewRecordings();
+        }
     }
 
     public bool ObserverExistsInThisSession(GameSession gs, int id)
@@ -734,6 +806,73 @@ public class NetworkedServer : MonoBehaviour
         foreach (Client c in clients)
         {
             SendMessageToClient(_msg, c.connectionId);
+        }
+    }
+    public void NotifyClientsAboutNewRecordings()
+    {
+        // send all records to the server
+        SendMessageToAllClients(ServerToClientSignifier.QueueStartOfRecordings.ToString() + ",");
+
+        for (int i = 0; i < recordings.Count; i++)
+        {
+            int SubDivisions = MaxElementsPerRecord;
+            int SubDivisionsPerList = (recordings[i].records.Count / SubDivisions) + 1;
+
+
+            // Add to the list of records:
+            List<Record> tempRecords = new List<Record>();
+
+            // In all of our records (seperated by "subdivision count")
+            for (int j = 0; j < SubDivisionsPerList; j++)
+            {
+                int indexStart = j * SubDivisions;
+                int indexEnd = (j + 1) * SubDivisions;
+
+                tempRecords.Clear();
+
+                // For every record in this sub divided list
+                for (int k = indexStart; k < indexEnd; k++)
+                {
+                    // Were sub dividing by a floored number so we will always have a remainder
+                    // of elements after the last sub division, just do a simple check
+                    if (k < recordings[i].records.Count)
+                    {
+                        Debug.Log("Heart beat number: " + j + " " + " Index is: " + k.ToString());
+                        tempRecords.Add(recordings[i].records[k]);
+                    }
+                }
+                // parse the data into comma seperated values
+                string msg = ServerToClientSignifier.SendRecording + "," + tempRecords.Count.ToString() + ",";
+
+                // Get parsed data returns the board slots as '|' seperated values.
+                // We can have seperated values inside other seperated values.
+                // a comma will seperate the records, while a '|' will seperate the board slots themselves
+                foreach (Record r in tempRecords)
+                    msg += r.GetParsedData() + ",";
+
+
+                SendMessageToAllClients(msg);
+
+                // and now we can send it to the server
+                //netclient.SendMessageToHost(msg);
+
+                //Debug.Log("Message: " + msg.ToString());
+            }
+            // tell the server that were done sending records
+            // so the server can add it to the list of saved recordings
+
+            // Mark the end of this record list:
+            SendMessageToAllClients(ServerToClientSignifier.QueueEndOfRecord + ",");
+            //netclient.SendMessageToHost(ClientToServerSignifier.RecordSendingDone.ToString() + ",");
+
+        }
+    }
+
+    private void SendMessageToAllClients(string msg)
+    {
+        foreach(Client c in clients)
+        {
+            SendMessageToClient(msg, c.connectionId);
         }
     }
 
