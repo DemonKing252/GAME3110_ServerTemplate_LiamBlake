@@ -46,6 +46,8 @@ public static class ServerToClientSignifier
     public const int QueueEndOfRecord = 112;
     public const int QueueStartOfRecordings = 113;
 
+    public const int QueueEndOfRecordings = 114;
+
 }
 // manage sending our chat message to clients who we want to have authority 
 public static class MessageAuthority
@@ -184,6 +186,11 @@ public class Record
 [System.Serializable]
 public class Recording
 {
+    // Theres no point in parsing the time recorded back to its original System.Time, if were going to 
+    // to just send it back to the client as a CSV anyway
+
+    public string username;   // username that this was recorded from
+    public string timeRecorded;
     public List<Record> records = new List<Record>();
 }
 
@@ -755,6 +762,8 @@ public class NetworkedServer : MonoBehaviour
         else if (signifier == ClientToServerSignifier.RecordSendingDone)
         {
             Recording recording = new Recording();
+            recording.timeRecorded = data[1];
+            recording.username = data[2];
 
             // Copy the list over.
             Record[] tempRecords = new Record[clientRecords.Count];
@@ -815,18 +824,18 @@ public class NetworkedServer : MonoBehaviour
 
         for (int i = 0; i < recordings.Count; i++)
         {
-            int SubDivisions = MaxElementsPerRecord;
-            int SubDivisionsPerList = (recordings[i].records.Count / SubDivisions) + 1;
+            int subDivisions = MaxElementsPerRecord;
+            int subDivisionsPerList = (recordings[i].records.Count / subDivisions) + 1;
 
 
             // Add to the list of records:
             List<Record> tempRecords = new List<Record>();
 
             // In all of our records (seperated by "subdivision count")
-            for (int j = 0; j < SubDivisionsPerList; j++)
+            for (int j = 0; j < subDivisionsPerList; j++)
             {
-                int indexStart = j * SubDivisions;
-                int indexEnd = (j + 1) * SubDivisions;
+                int indexStart = j * subDivisions;
+                int indexEnd = (j + 1) * subDivisions;
 
                 tempRecords.Clear();
 
@@ -862,10 +871,11 @@ public class NetworkedServer : MonoBehaviour
             // so the server can add it to the list of saved recordings
 
             // Mark the end of this record list:
-            SendMessageToAllClients(ServerToClientSignifier.QueueEndOfRecord + ",");
-            //netclient.SendMessageToHost(ClientToServerSignifier.RecordSendingDone.ToString() + ",");
-
+            SendMessageToAllClients(ServerToClientSignifier.QueueEndOfRecord + "," + recordings[i].timeRecorded + "," + recordings[i].username + ",");
+            
         }
+        SendMessageToAllClients(ServerToClientSignifier.QueueEndOfRecordings + ",");
+
     }
 
     private void SendMessageToAllClients(string msg)
