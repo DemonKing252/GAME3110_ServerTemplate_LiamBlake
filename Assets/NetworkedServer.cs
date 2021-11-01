@@ -516,14 +516,6 @@ public class NetworkedServer : MonoBehaviour
 
             }
 
-            //if (gs.playerId1 == id)
-            //{
-            //    SendMessageToClient(ServerToClientSignifier.OpponentTicTacToePlay.ToString() + ",", gs.playerId1);
-            //}
-            //else
-            //{
-            //    SendMessageToClient(ServerToClientSignifier.OpponentTicTacToePlay.ToString() + ",", gs.playerId2);
-            //}
         }
         else if (signifier == ClientToServerSignifier.UpdateBoard)
         {
