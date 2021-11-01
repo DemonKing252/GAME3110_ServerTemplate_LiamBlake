@@ -68,6 +68,8 @@ public static class LoginResponse
     public const int WrongNameAndPassword = 1002;
     public const int WrongName = 1003;
     public const int WrongPassword = 1004;
+
+    public const int AccountAlreadyUsedByAnotherPlayer = 1005;
 }
 public static class CreateResponse
 {
@@ -169,14 +171,23 @@ public class Record
     };
     public Record()
     {
-
+        messages = new List<string>();
     }
+
+    public List<string> messages;
+    public string serverResponse;
+
     public string GetParsedData()
     {
         string temp = "";
         foreach (char s in slots)
         {
             temp += s.ToString() + "|";
+        }
+        temp += serverResponse + "|+";
+        foreach (string m in messages)
+        {
+            temp += m + "|";
         }
 
         return temp;
@@ -224,8 +235,11 @@ public class NetworkedServer : MonoBehaviour
     private LinkedList<PlayerAccount> playerAccounts = new LinkedList<PlayerAccount>();
     private int playerwaitingformatch = -1;
 
+    // A list of all active accounts in the server
+    // This is used to prevent more than one user from entering with the same account.
+    private List<PlayerAccount> activeAccounts = new List<PlayerAccount>();
 
-    private const int recordSize = 52;
+    private const int recordSize = 224;
     private int MaxElementsPerRecord;
 
     // Start is called before the first frame update
@@ -333,8 +347,8 @@ public class NetworkedServer : MonoBehaviour
         int recHostID;
         int recConnectionID;
         int recChannelID;
-        byte[] recBuffer = new byte[1024];
-        int bufferSize = 1024;
+        byte[] recBuffer = new byte[8192];
+        int bufferSize = 8192;
         int dataSize;
         byte error = 0;
 
@@ -395,6 +409,7 @@ public class NetworkedServer : MonoBehaviour
     private void ProcessRecievedMsg(string msg, int id, int size)
     {
         Debug.Log("msg recieved = " + msg + ".  connection id = " + id);
+        Debug.Log("sizeof buffer: " + size.ToString());
 
         string[] data = msg.Split(',');
 
@@ -454,8 +469,17 @@ public class NetworkedServer : MonoBehaviour
                                 c.loggedin = true;
                             }
                         }
-                        // Successful
-                        SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.Success.ToString(), id);
+                        if (!IsUserNameAlreadyLoggedOn(p.username))
+                        {
+                            activeAccounts.Add(p);
+                            // Successful
+                            SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.Success.ToString(), id);
+
+                        }
+                        else
+                        {
+                            SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.AccountAlreadyUsedByAnotherPlayer.ToString(), id);
+                        }
 
                     }
                     else
@@ -633,6 +657,7 @@ public class NetworkedServer : MonoBehaviour
             // If were a player, we end the session, because the game is over
             // General rule is you cant let someone else take over the game session
             // Because that makes for an unfair game
+ 
             
             if (gs != null && !IsObserver)
             {
@@ -713,6 +738,23 @@ public class NetworkedServer : MonoBehaviour
                     }
                 }
             }
+            Client temp = null;
+            foreach (Client c in clients)
+            {
+                if (c.connectionId == id)
+                {
+                    temp = c;
+                    break;
+                }
+            }
+            foreach(PlayerAccount account in activeAccounts)
+            {
+                if (account.username == temp.username)
+                {
+                    activeAccounts.Remove(account);
+                    break;
+                }
+            }
 
             // Remove the client from our list
             RemoveClientAt(id);
@@ -730,7 +772,9 @@ public class NetworkedServer : MonoBehaviour
             int numSubDivisions = int.Parse(data[1]);
             for(int i = 0; i < numSubDivisions; i++)
             {
-                string[] boardData = data[index].Split('|');
+                string[] gameData = data[index].Split('+'); 
+
+                string[] boardData = gameData[0].Split('|');
                 Record r = new Record();
 
                 // using index 0 will allow you to get the character in the string (index 0)
@@ -743,6 +787,15 @@ public class NetworkedServer : MonoBehaviour
                 r.slots[6] = boardData[6][0];  // characters
                 r.slots[7] = boardData[7][0];  // characters
                 r.slots[8] = boardData[8][0];  // characters
+
+                // Server response status (the text on screen above the board)
+                r.serverResponse = boardData[9];
+
+                string[] textData = gameData[1].Split('|');
+                foreach(string s in textData)
+                {
+                    r.messages.Add(s);
+                }
 
                 index++;
 
@@ -921,4 +974,13 @@ public class NetworkedServer : MonoBehaviour
         return _msg;
     }
 
+    public bool IsUserNameAlreadyLoggedOn(string username)
+    {
+        foreach(PlayerAccount pa in activeAccounts)
+        {
+            if (pa.username == username)
+                return true;
+        }
+        return false;
+    }
 }
