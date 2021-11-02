@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using UnityEngine;
+using UnityEngine.UI;
 using UnityEngine.Assertions;
 using UnityEngine.Networking;
 
@@ -48,6 +49,8 @@ public static class ServerToClientSignifier
 
     public const int QueueEndOfRecordings = 114;
 
+    public const int KickPlayer = 115;
+
 }
 // manage sending our chat message to clients who we want to have authority 
 public static class MessageAuthority
@@ -70,6 +73,7 @@ public static class LoginResponse
     public const int WrongPassword = 1004;
 
     public const int AccountAlreadyUsedByAnotherPlayer = 1005;
+    public const int AccountBanned = 1006;
 }
 public static class CreateResponse
 {
@@ -204,6 +208,16 @@ public class Recording
     public string timeRecorded;
     public List<Record> records = new List<Record>();
 }
+public static class ServerCommand
+{
+    public const string Help = "help";
+    public const string Kick = "kick";
+    public const string ClearConsole = "clear";
+    public const string StopServer = "stop";
+    public const string BanPlayer = "ban";
+    public const string UnBanPlayer = "unban";
+
+}
 
 
 public class NetworkedServer : MonoBehaviour
@@ -223,17 +237,29 @@ public class NetworkedServer : MonoBehaviour
     [SerializeField]
     private List<GameSession> sessions = new List<GameSession>();
 
+    [SerializeField]
+    private GameObject textPrefab;
+
+    [SerializeField]
+    private GameObject serverLogParent;
+
+    [SerializeField]
+    private InputField cmdField;
+
     int maxConnections = 1000;
     int reliableChannelID;
     int unreliableChannelID;
     int hostID;
     int socketPort = 5491;
 
-    private string path;
+    private string playerAccountPath;
+    private string bannedPlayersPath;
 
     [SerializeField]
     private LinkedList<PlayerAccount> playerAccounts = new LinkedList<PlayerAccount>();
     private int playerwaitingformatch = -1;
+
+    private List<string> bannedPlayers = new List<string>();
 
     // A list of all active accounts in the server
     // This is used to prevent more than one user from entering with the same account.
@@ -242,14 +268,27 @@ public class NetworkedServer : MonoBehaviour
     private const int recordSize = 224;
     private int MaxElementsPerRecord;
 
+    // Command start
+    public const string commandSignifier = "/";
+    
+    // If the command needs to know a username, this is the signifier that its looking for
+    public const string usernameCommandSignifier = " ";
+
     // Start is called before the first frame update
     void Start()
     {
         // Maximum number of elements we can specify in one packet
         MaxElementsPerRecord = Mathf.FloorToInt((float)1024 / (float)recordSize);
 
-        path = Application.dataPath + Path.DirectorySeparatorChar + "Resources" + Path.DirectorySeparatorChar + "PlayerAccounts.txt";
+        playerAccountPath = Application.dataPath + Path.DirectorySeparatorChar + "Resources" + Path.DirectorySeparatorChar + "PlayerAccounts.txt";
+        bannedPlayersPath = Application.dataPath + Path.DirectorySeparatorChar + "Resources" + Path.DirectorySeparatorChar + "BannedPlayers.txt";
+
+
+        NewServerMessage("Loading player accounts..");
         LoadAccounts();
+
+        NewServerMessage("Loading banned players..");
+        LoadBannedPlayers();
 
         NetworkTransport.Init();
         ConnectionConfig config = new ConnectionConfig();
@@ -258,17 +297,180 @@ public class NetworkedServer : MonoBehaviour
         HostTopology topology = new HostTopology(config, maxConnections);
         hostID = NetworkTransport.AddHost(topology, socketPort, null);
 
+        NewServerMessage("Server started.");
 
 
     }
+
+    public bool DoesCommandExist(string cmd)
+    {
+        return
+        (
+            cmd == ServerCommand.Help ||
+            cmd == ServerCommand.ClearConsole ||
+            cmd == ServerCommand.Kick ||
+            cmd == ServerCommand.StopServer || 
+            cmd == ServerCommand.BanPlayer || 
+            cmd == ServerCommand.UnBanPlayer
+        );
+    }
+
+    public void OnCommandEntered(string cmd)
+    {
+        string[] cmdData = cmd.Split('/');
+
+        if (cmdData.Length < 2)
+        {
+            NewServerWarning("Unknown command signifier! Commands start with '" + commandSignifier + "'");
+            cmdField.text = string.Empty;
+        }
+        else
+        {
+            string[] cmdSubAttributes = cmdData[1].Split(' ');
+
+            if (DoesCommandExist(cmdSubAttributes[0]))
+            {
+                // Apparently theres no variable const for an orange color
+                if (cmdSubAttributes.Length == 2)
+                {
+                    // If this command has a footer (ie: kick username, ban username etc)
+                    ProcessCommand(cmdSubAttributes[0], cmdSubAttributes[1]);
+                }
+                else
+                {
+                    // Else its just a simple keyword command
+                    ProcessCommand(cmdData[1], string.Empty);
+                }
+                cmdField.text = string.Empty;
+            }
+            else
+            {
+                NewServerWarning("Unknown command!");
+                cmdField.text = string.Empty;
+            }
+        }
+        
+    }
+    public void PostListOfCommands()
+    {
+        NewServerMessageWithCustomColor(commandSignifier + ServerCommand.ClearConsole + " clear the console", Color.cyan);
+        NewServerMessageWithCustomColor(commandSignifier + ServerCommand.Kick + " 'username' to kick a player (note: kicking a player AUTOMATICALLY adds them to the banned players list!)", Color.cyan);
+        NewServerMessageWithCustomColor(commandSignifier + ServerCommand.StopServer + " to stop the server", Color.cyan);
+        NewServerMessageWithCustomColor(commandSignifier + ServerCommand.BanPlayer + " 'username' to ban a player", Color.cyan);
+        NewServerMessageWithCustomColor(commandSignifier + ServerCommand.UnBanPlayer + " 'username' to unban a player", Color.cyan);
+
+    }
+    public void ProcessCommand(string header, string footer)
+    {
+        switch (header)
+        {
+            case ServerCommand.Help:
+                PostListOfCommands();
+                break;
+            case ServerCommand.StopServer:
+                StopServer();
+                break;
+            case ServerCommand.Kick:
+                // Kick player from session
+                int id = GetIdFromUserName(footer);
+                
+                if (id != -1)
+                {
+                    SendMessageToClient(ServerToClientSignifier.KickPlayer + ",", id); 
+                    NewServerMessageWithCustomColor("Kicked " + footer + " from the game.", new Color(1.0f, 0.65f, 0.0f));
+                    RemoveUsernameWithID(id);
+
+                    // ban player
+                    bannedPlayers.Add(footer);
+                }
+                else
+                {
+                    NewServerMessageWithCustomColor("That username does not exist!.", Color.red);
+                }
+                break;
+            case ServerCommand.BanPlayer:
+                bool exists = false;
+                foreach(string bP in bannedPlayers)
+                {
+                    if (bP == footer)
+                    {
+                        exists = true;
+                        break;
+                    }
+                }
+
+                if (exists)
+                {
+                    NewServerMessageWithCustomColor("That username is already banned.", new Color(1.0f, 0.65f, 0.0f));
+                }
+                else
+                {
+                    bannedPlayers.Add(footer);
+                    NewServerMessageWithCustomColor("Banned " + footer + " from the server.", new Color(1.0f, 0.65f, 0.0f));
+                }
+
+                break;
+            case ServerCommand.UnBanPlayer:
+                if (bannedPlayers.Remove(footer))
+                {
+                    NewServerMessageWithCustomColor("Unbanned " + footer + " from the server.", new Color(1.0f, 0.65f, 0.0f));
+                }
+                else 
+                {
+                    NewServerMessageWithCustomColor("That username does not exist!", Color.red);
+                }
+
+                break;
+        
+        }
+
+    }
+    private void StopServer()
+    {
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
+    }
+    public void NewServerMessageWithCustomColor(string text, Color c)
+    {
+        GameObject go = Instantiate(textPrefab, serverLogParent.transform);
+        go.GetComponent<Text>().text = GetFormattedTime() + text;
+        go.GetComponent<Text>().color = c;
+    }
+
+    public void NewServerMessage(string text)
+    {
+        GameObject go = Instantiate(textPrefab, serverLogParent.transform);
+        go.GetComponent<Text>().text = GetFormattedTime() + text;
+        go.GetComponent<Text>().color = Color.green;
+    }
+    public void NewServerWarning(string text)
+    {
+        GameObject go = Instantiate(textPrefab, serverLogParent.transform);
+        go.GetComponent<Text>().text = GetFormattedTime() + text;
+        go.GetComponent<Text>().color = Color.yellow;
+    }
+    public void NewServerError(string text)
+    {
+        GameObject go = Instantiate(textPrefab, serverLogParent.transform);
+        go.GetComponent<Text>().text = GetFormattedTime() + text;
+        go.GetComponent<Text>().color = Color.red;
+    }
+
     void OnApplicationQuit()
     {
+        NewServerMessage("Saving player accounts..");
         SaveAccounts();
+
+        NewServerMessage("Saving banned players");
+        SaveBannedPlayers();
     }
 
     public void SaveAccounts()
     {
-        StreamWriter sw = new StreamWriter(path);
+        StreamWriter sw = new StreamWriter(playerAccountPath);
 
         try
         {
@@ -289,15 +491,76 @@ public class NetworkedServer : MonoBehaviour
             Debug.LogError("ERROR when saving: " + e.Message);
         }
     }
+    public static string GetFormattedTime()
+    {
 
+        System.DateTime dateTime = System.DateTime.Now;
+        string txt =
+            "[" + dateTime.Month.ToString("00") +
+            "-" + dateTime.Day.ToString("00") +
+            "-" + dateTime.Year.ToString("00") +
+            " " + dateTime.Hour.ToString("00") +
+            ":" + dateTime.Minute.ToString("00") +
+            ":" + dateTime.Second.ToString("00") + "] (Server): ";
+
+        return txt;
+    }
+    public void LoadBannedPlayers()
+    {
+        try
+        {
+            if (File.Exists(bannedPlayersPath))
+            {
+                StreamReader sr = new StreamReader(bannedPlayersPath);
+
+                string rawdata;
+                while ((rawdata = sr.ReadLine()) != null)
+                {
+                    bannedPlayers.Add(rawdata);
+                }
+
+            }
+            else
+            {
+                // Create a file for writing
+                SaveBannedPlayers();
+
+                // Recursion comes in handy here
+                LoadBannedPlayers();
+            }
+        }
+        catch (Exception e)
+        {
+            NewServerError("ERROR when loading: " + e.Message);
+        }
+    }
+    public void SaveBannedPlayers()
+    {
+        StreamWriter sw = new StreamWriter(bannedPlayersPath);
+
+        try
+        {
+            // num of accounts|account user, account password|next account . . . . .
+
+            foreach(string bP in bannedPlayers)
+                sw.WriteLine(bP);
+            
+            sw.Close();
+
+        }
+        catch (Exception e)
+        {
+            NewServerError("ERROR when saving: " + e.Message);
+        }
+    }
     public void LoadAccounts()
     {
 
         try
         {
-            if (File.Exists(path))
+            if (File.Exists(playerAccountPath))
             {
-                StreamReader sr = new StreamReader(path);
+                StreamReader sr = new StreamReader(playerAccountPath);
 
                 string rawdata;
 
@@ -336,7 +599,7 @@ public class NetworkedServer : MonoBehaviour
         }
         catch (Exception e)
         {
-            Debug.LogError("ERROR when loading: " + e.Message);
+            NewServerError("ERROR when loading: " + e.Message);
         }
     }
 
@@ -385,6 +648,9 @@ public class NetworkedServer : MonoBehaviour
     {
         Debug.Log("Connection, " + recConnectionId);
 
+
+        NewServerMessage("Player id " + recConnectionId.ToString() + " connected.");
+
         Client temp = new Client();
         temp.connectionId = recConnectionId;
         clients.Add(temp);
@@ -403,13 +669,12 @@ public class NetworkedServer : MonoBehaviour
     private void OnClientDisconnected(int recConnectionId)
     {
         Debug.Log("Disconnection, " + recConnectionId);
-        
+
+        NewServerMessage("Player id " + recConnectionId.ToString() + " disconnected.");
     }
 
     private void ProcessRecievedMsg(string msg, int id, int size)
     {
-        Debug.Log("msg recieved = " + msg + ".  connection id = " + id);
-        Debug.Log("sizeof buffer: " + size.ToString());
 
         string[] data = msg.Split(',');
 
@@ -435,12 +700,14 @@ public class NetworkedServer : MonoBehaviour
                 playerAccounts.AddLast(new PlayerAccount(_user, _pass));
                 SendMessageToClient(ServerToClientSignifier.CreateResponse.ToString() + "," + CreateResponse.Success.ToString(), id);
 
-                //SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.Success.ToString(), 0);
+
+                NewServerMessage("Player id " + id.ToString() + "(create account response): created account successfully.");
             }
             else
             {
                 SendMessageToClient(ServerToClientSignifier.CreateResponse.ToString() + "," + CreateResponse.UsernameTaken.ToString(), id);
 
+                NewServerMessage("Player id " + id.ToString() + "(create account response): username taken");
             }
         }
         else if (signifier == ClientToServerSignifier.Login)
@@ -471,14 +738,33 @@ public class NetworkedServer : MonoBehaviour
                         }
                         if (!IsUserNameAlreadyLoggedOn(p.username))
                         {
-                            activeAccounts.Add(p);
-                            // Successful
-                            SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.Success.ToString(), id);
-
+                            bool thisPlayerIsBanned = false;
+                            foreach(string bannedPlayer in bannedPlayers)
+                            {
+                                if (bannedPlayer == p.username)
+                                {
+                                    thisPlayerIsBanned = true;
+                                    break;
+                                }
+                            }
+                            if (thisPlayerIsBanned)
+                            {
+                                SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.AccountBanned.ToString(), id);
+                            }
+                            else
+                            {
+                                activeAccounts.Add(p);
+                                // Successful
+                                SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.Success.ToString(), id);
+                                NewServerMessage("Player id " + id.ToString() + " (login response): logged in as: " + p.username);
+                                NewServerMessageWithCustomColor(p.username + " logged in.", Color.magenta);
+                            }
+                            
                         }
                         else
                         {
                             SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.AccountAlreadyUsedByAnotherPlayer.ToString(), id);
+                            NewServerMessage("Player id " + id.ToString() + " (login response): that username is already logged on!");
                         }
 
                     }
@@ -486,6 +772,8 @@ public class NetworkedServer : MonoBehaviour
                     {
                         // Correct username but wrong password
                         SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.WrongPassword.ToString(), id);
+
+                        NewServerMessage("Player id " + id.ToString() + " (login response): wrong password entered.");
                     }
 
                     wasFound = true;
@@ -497,6 +785,7 @@ public class NetworkedServer : MonoBehaviour
             if (!wasFound)
             {
 
+                NewServerMessage("Player id " + id.ToString() + " (login response): username not found.");
                 SendMessageToClient(ServerToClientSignifier.LoginResponse.ToString() + "," + LoginResponse.WrongName.ToString(), id);
             }
         }
@@ -505,6 +794,8 @@ public class NetworkedServer : MonoBehaviour
             // first player waiting
             if (playerwaitingformatch == -1)
             {
+
+                NewServerMessage(GetUserName(id) + ": started a match");
                 playerwaitingformatch = id;
             }
             // player is waiting, and a new client has joined, so we can create the game session.
@@ -513,6 +804,8 @@ public class NetworkedServer : MonoBehaviour
                 GameSession gs = new GameSession(playerwaitingformatch, id);
 
                 sessions.Add(gs);
+
+                NewServerMessage(GetUserName(id) + ": was put into a game room.");
 
                 SendMessageToClient(ServerToClientSignifier.GameSessionStarted.ToString() + "," + sessions.Count.ToString() + ",X," + gs.playerTurn + ",1", id);
                 SendMessageToClient(ServerToClientSignifier.GameSessionStarted.ToString() + "," + sessions.Count.ToString() + ",O," + gs.playerTurn + ",2", playerwaitingformatch);
@@ -531,6 +824,8 @@ public class NetworkedServer : MonoBehaviour
         }
         else if (signifier == ClientToServerSignifier.TicTacToePlay)
         {
+
+            NewServerMessage("Player id " + id.ToString() + " game started");
             GameSession gs = FindGameSessionWithPlayerID(id);
 
             if (gs != null)
@@ -543,7 +838,6 @@ public class NetworkedServer : MonoBehaviour
         }
         else if (signifier == ClientToServerSignifier.UpdateBoard)
         {
-            Debug.Log("Updating board . . .");
 
             GameSession gs = FindGameSessionWithPlayerID(id);
             Assert.IsNotNull(gs, "Error: game session was null!");
@@ -553,6 +847,9 @@ public class NetworkedServer : MonoBehaviour
             // so decrypting this error will be alot easier!
             try
             {
+
+
+                NewServerMessage(GetUserName(id) + ": made a board move");
 
                 // ------------------------------------------
                 // Notify all clients and observers
@@ -571,7 +868,7 @@ public class NetworkedServer : MonoBehaviour
             }
             catch (Exception e)
             {
-                Debug.LogError("Error when updating board: " + e.Message);
+                NewServerError("Error when updating board: " + e.Message);
                 Assert.IsNotNull(gs, "Error: game session was null!");
             }
         }
@@ -582,6 +879,7 @@ public class NetworkedServer : MonoBehaviour
             Assert.IsNotNull(gs, "Error, game session was null when recieving chat message");
             // send to game session
 
+            NewServerMessage(GetUserName(id) + ": new message");
 
             try
             {
@@ -623,7 +921,7 @@ public class NetworkedServer : MonoBehaviour
             }
             catch (Exception e)
             {
-                Debug.LogError("Error when parsing authority options: " + e.Message);
+                NewServerError("Error when parsing authority options: " + e.Message);
             }
 
 
@@ -638,6 +936,8 @@ public class NetworkedServer : MonoBehaviour
             sessions[sessionIndex].observerIds.Add(id);
 
             string _msg = GetParsedBoardData(sessions[sessionIndex]);
+
+            NewServerMessage(GetUserName(id) + ": joined game room " + sessionIndex.ToString() + " as an observer.");
 
             // This should not throw, otherwise we have a logic error, so im adding this in:
             SendMessageToClient(ServerToClientSignifier.ConfirmObserver + ",", id);
@@ -654,11 +954,12 @@ public class NetworkedServer : MonoBehaviour
 
             bool IsObserver = bool.Parse(data[1]);
 
+            NewServerMessage(GetUserName(id) + ": left the session.");
             // If were a player, we end the session, because the game is over
             // General rule is you cant let someone else take over the game session
             // Because that makes for an unfair game
- 
-            
+
+
             if (gs != null && !IsObserver)
             {
                 string _disconnectMsg = ServerToClientSignifier.PlayerDisconnected + ",";   // We always need the comma, or else were going to read garbage data which will cause a lot of problems
@@ -705,6 +1006,8 @@ public class NetworkedServer : MonoBehaviour
 
             bool IsObserver = bool.Parse(data[1]);
 
+            NewServerMessage(GetUserName(id) + ": left server");
+
             // If were a player, we end the session, because the game is over
             // General rule is you cant let someone else take over the game session
             // Because that makes for an unfair game
@@ -738,23 +1041,7 @@ public class NetworkedServer : MonoBehaviour
                     }
                 }
             }
-            Client temp = null;
-            foreach (Client c in clients)
-            {
-                if (c.connectionId == id)
-                {
-                    temp = c;
-                    break;
-                }
-            }
-            foreach(PlayerAccount account in activeAccounts)
-            {
-                if (account.username == temp.username)
-                {
-                    activeAccounts.Remove(account);
-                    break;
-                }
-            }
+            RemoveUsernameWithID(id);
 
             // Remove the client from our list
             RemoveClientAt(id);
@@ -764,8 +1051,6 @@ public class NetworkedServer : MonoBehaviour
         }
         else if (signifier == ClientToServerSignifier.SendRecord)
         {
-            Debug.Log("Size of this record is: " + size.ToString());
-
 
 
             int index = 2;
@@ -806,6 +1091,9 @@ public class NetworkedServer : MonoBehaviour
         }
         else if (signifier == ClientToServerSignifier.RecordSendingDone)
         {
+
+            NewServerMessage(GetUserName(id) + ": new recording recieved.");
+
             Recording recording = new Recording();
             recording.timeRecorded = data[1];
             recording.username = data[2];
@@ -827,7 +1115,26 @@ public class NetworkedServer : MonoBehaviour
             NotifyClientsAboutNewRecordings();
         }
     }
-
+    public void RemoveUsernameWithID(int id)
+    {
+        Client temp = null;
+        foreach (Client c in clients)
+        {
+            if (c.connectionId == id)
+            {
+                temp = c;
+                break;
+            }
+        }
+        foreach (PlayerAccount account in activeAccounts)
+        {
+            if (account.username == temp.username)
+            {
+                activeAccounts.Remove(account);
+                break;
+            }
+        }
+    }
     public bool ObserverExistsInThisSession(GameSession gs, int id)
     {
         foreach (int i in gs.observerIds)
@@ -982,5 +1289,21 @@ public class NetworkedServer : MonoBehaviour
                 return true;
         }
         return false;
+    }
+    public string GetUserName(int id)
+    {
+        foreach (Client c in clients)
+            if (c.connectionId == id)
+                return c.username;
+
+        return string.Empty;
+    }
+    public int GetIdFromUserName(string user)
+    {
+        foreach (Client c in clients)
+            if (c.username == user)
+                return c.connectionId;
+
+        return -1;
     }
 }
