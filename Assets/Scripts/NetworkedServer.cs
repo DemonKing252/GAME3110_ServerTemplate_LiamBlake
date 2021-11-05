@@ -50,6 +50,7 @@ public static class ServerToClientSignifier
     public const int QueueEndOfRecordings = 114;
 
     public const int KickPlayer = 115;
+    public const int ConnectionLost = 116;
 
 }
 // manage sending our chat message to clients who we want to have authority 
@@ -484,6 +485,8 @@ public class NetworkedServer : MonoBehaviour
 
         NewServerMessage("Saving banned players");
         SaveBannedPlayers();
+
+        DisconnectAllClients();
     }
 
     public void SaveAccounts()
@@ -1323,5 +1326,9 @@ public class NetworkedServer : MonoBehaviour
                 return c.connectionId;
 
         return -1;
+    }
+    public void DisconnectAllClients()
+    {
+        SendMessageToAllClients(ServerToClientSignifier.ConnectionLost.ToString() + ",");
     }
 }
