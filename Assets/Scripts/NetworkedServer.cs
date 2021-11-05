@@ -319,12 +319,12 @@ public class NetworkedServer : MonoBehaviour
     {
         string[] cmdData = cmd.Split('/');
 
-        if (cmdData.Length < 2)
+        if (cmdData.Length < 2 && cmd.Length > 0)
         {
             NewServerWarning("Unknown command signifier! Commands start with '" + commandSignifier + "'");
             cmdField.text = string.Empty;
         }
-        else
+        else if (cmd.Length > 0)    // Left clicking on a input field registers an end input so we dont want to process the command if the string is empty.
         {
             string[] cmdSubAttributes = cmdData[1].Split(' ');
 
@@ -421,10 +421,24 @@ public class NetworkedServer : MonoBehaviour
                 }
 
                 break;
+            case ServerCommand.ClearConsole:
+
+                ClearConsole();
+                break;
         
         }
 
     }
+
+    public void ClearConsole()
+    {
+        GameObject[] _gos = GameObject.FindGameObjectsWithTag("ServerMessage");
+        foreach(GameObject go in _gos)
+        {
+            Destroy(go);
+        }
+    }
+
     private void StopServer()
     {
 #if UNITY_EDITOR
@@ -438,6 +452,7 @@ public class NetworkedServer : MonoBehaviour
         GameObject go = Instantiate(textPrefab, serverLogParent.transform);
         go.GetComponent<Text>().text = GetFormattedTime() + text;
         go.GetComponent<Text>().color = c;
+        go.tag = "ServerMessage";
     }
 
     public void NewServerMessage(string text)
@@ -445,18 +460,21 @@ public class NetworkedServer : MonoBehaviour
         GameObject go = Instantiate(textPrefab, serverLogParent.transform);
         go.GetComponent<Text>().text = GetFormattedTime() + text;
         go.GetComponent<Text>().color = Color.green;
+        go.tag = "ServerMessage";
     }
     public void NewServerWarning(string text)
     {
         GameObject go = Instantiate(textPrefab, serverLogParent.transform);
         go.GetComponent<Text>().text = GetFormattedTime() + text;
         go.GetComponent<Text>().color = Color.yellow;
+        go.tag = "ServerMessage";
     }
     public void NewServerError(string text)
     {
         GameObject go = Instantiate(textPrefab, serverLogParent.transform);
         go.GetComponent<Text>().text = GetFormattedTime() + text;
         go.GetComponent<Text>().color = Color.red;
+        go.tag = "ServerMessage";
     }
 
     void OnApplicationQuit()
