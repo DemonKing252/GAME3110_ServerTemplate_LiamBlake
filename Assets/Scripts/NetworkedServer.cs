@@ -162,6 +162,7 @@ public class GameSession
 [System.Serializable]
 public class Record
 {
+    public float timeRecorded = 0f;
     public char[] slots = new char[9]
     {
         ' ',
@@ -189,7 +190,7 @@ public class Record
         {
             temp += s.ToString() + "|";
         }
-        temp += serverResponse + "|+";
+        temp += serverResponse + "|" + timeRecorded.ToString("F2") + "|+";
         foreach (string m in messages)
         {
             temp += m + "|";
@@ -1096,6 +1097,7 @@ public class NetworkedServer : MonoBehaviour
 
                 // Server response status (the text on screen above the board)
                 r.serverResponse = boardData[9];
+                r.timeRecorded = float.Parse(boardData[10]);
 
                 string[] textData = gameData[1].Split('|');
                 foreach(string s in textData)
