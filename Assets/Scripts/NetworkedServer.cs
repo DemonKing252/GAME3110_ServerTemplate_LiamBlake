@@ -213,7 +213,7 @@ public class Recording
 public static class ServerCommand
 {
     public const string Help = "help";
-    public const string Kick = "kick";
+    public const string KickPlayer = "kick";
     public const string ClearConsole = "clear";
     public const string StopServer = "stop";
     public const string BanPlayer = "ban";
@@ -310,7 +310,7 @@ public class NetworkedServer : MonoBehaviour
         (
             cmd == ServerCommand.Help ||
             cmd == ServerCommand.ClearConsole ||
-            cmd == ServerCommand.Kick ||
+            cmd == ServerCommand.KickPlayer ||
             cmd == ServerCommand.StopServer || 
             cmd == ServerCommand.BanPlayer || 
             cmd == ServerCommand.UnBanPlayer
@@ -356,7 +356,7 @@ public class NetworkedServer : MonoBehaviour
     public void PostListOfCommands()
     {
         NewServerMessageWithCustomColor(commandSignifier + ServerCommand.ClearConsole + " clear the console", Color.cyan);
-        NewServerMessageWithCustomColor(commandSignifier + ServerCommand.Kick + " 'username' to kick a player (note: kicking a player AUTOMATICALLY adds them to the banned players list!)", Color.cyan);
+        NewServerMessageWithCustomColor(commandSignifier + ServerCommand.KickPlayer + " 'username' to kick a player (note: kicking a player AUTOMATICALLY adds them to the banned players list!)", Color.cyan);
         NewServerMessageWithCustomColor(commandSignifier + ServerCommand.StopServer + " to stop the server", Color.cyan);
         NewServerMessageWithCustomColor(commandSignifier + ServerCommand.BanPlayer + " 'username' to ban a player", Color.cyan);
         NewServerMessageWithCustomColor(commandSignifier + ServerCommand.UnBanPlayer + " 'username' to unban a player", Color.cyan);
@@ -372,7 +372,7 @@ public class NetworkedServer : MonoBehaviour
             case ServerCommand.StopServer:
                 StopServer();
                 break;
-            case ServerCommand.Kick:
+            case ServerCommand.KickPlayer:
                 // Kick player from session
                 int id = GetIdFromUserName(footer);
                 
@@ -407,9 +407,27 @@ public class NetworkedServer : MonoBehaviour
                 }
                 else
                 {
+                    id = GetIdFromUserName(footer);
+
+                    if (id != -1)
+                    {
+                        SendMessageToClient(ServerToClientSignifier.KickPlayer + ",", id);
+                        NewServerMessageWithCustomColor("Kicked " + footer + " from the game.", new Color(1.0f, 0.65f, 0.0f));
+                        RemoveUsernameWithID(id);
+
+                        // ban player
+                        bannedPlayers.Add(footer);
+                    }
+                    else
+                    {
+                        NewServerMessageWithCustomColor("That username does not exist!.", Color.red);
+                    }
+
                     bannedPlayers.Add(footer);
                     NewServerMessageWithCustomColor("Banned " + footer + " from the server.", new Color(1.0f, 0.65f, 0.0f));
                 }
+
+                // Kick player if hes in the session
 
                 break;
             case ServerCommand.UnBanPlayer:
@@ -477,8 +495,9 @@ public class NetworkedServer : MonoBehaviour
         go.GetComponent<Text>().text = GetFormattedTime() + text;
         go.GetComponent<Text>().color = Color.red;
         go.tag = "ServerMessage";
+        
     }
-
+    
     void OnApplicationQuit()
     {
         NewServerMessage("Saving player accounts..");
