@@ -7,6 +7,7 @@ using UnityEngine.UI;
 using UnityEngine.Assertions;
 using UnityEngine.Networking;
 
+// Client to server message
 public static class ClientToServerSignifier
 {
     public const int Login = 1;
@@ -25,6 +26,7 @@ public static class ClientToServerSignifier
     public const int RecordSendingDone = 11;
 
 }
+// Server to client message
 public static class ServerToClientSignifier
 {
     public const int LoginResponse = 101;
@@ -65,6 +67,7 @@ public static class MessageAuthority
     public const int ToOtherClients = 153;      // To game session clients
 }
 
+// The result of a client attempting to login (this is a server to client signifier)
 public static class LoginResponse
 {
     public const int Success = 1001;
@@ -76,6 +79,7 @@ public static class LoginResponse
     public const int AccountAlreadyUsedByAnotherPlayer = 1005;
     public const int AccountBanned = 1006;
 }
+// The result of a client attempting to create an account (this is a server to client signifier)
 public static class CreateResponse
 {
     // 10,000
@@ -87,7 +91,6 @@ public static class CreateResponse
 
 
 // So I can view it from the inspector
-[Serializable]
 public class PlayerAccount
 {
     public string username;
@@ -101,7 +104,6 @@ public class PlayerAccount
 
 }
 
-[System.Serializable]
 public class Client
 {
     public int connectionId;
@@ -109,7 +111,6 @@ public class Client
     public bool loggedin = false;
 }
 
-[System.Serializable]
 public class BoardView
 {
     public string[] slots = new string[9]
@@ -126,10 +127,10 @@ public class BoardView
     };
     public BoardView()
     {
-        
+        // Nothing needed in here, unless we want to scale on this board view
+        // usually every board slot starts out as empty.
     }
 }
-[System.Serializable]
 public class GameSession
 {
     public char playerTurn;
@@ -159,7 +160,6 @@ public class GameSession
 
 }
 
-[System.Serializable]
 public class Record
 {
     public float timeRecorded = 0f;
@@ -200,7 +200,6 @@ public class Record
     }
 }
 
-[System.Serializable]
 public class Recording
 {
     // Theres no point in parsing the time recorded back to its original System.Time, if were going to 
@@ -210,6 +209,7 @@ public class Recording
     public string timeRecorded;
     public List<Record> records = new List<Record>();
 }
+// Better to keep them as constants
 public static class ServerCommand
 {
     public const string Help = "help";
@@ -225,24 +225,20 @@ public static class ServerCommand
 public class NetworkedServer : MonoBehaviour
 {
     // This list is for reading sub divided record data.
-    [SerializeField]
     private List<Record> clientRecords = new List<Record>();
 
     // This list is for the actual records that have been recorded.
 
-    [SerializeField]
     private List<Recording> recordings = new List<Recording>();
 
-    [SerializeField]
     private List<Client> clients = new List<Client>();
 
-    [SerializeField]
     private List<GameSession> sessions = new List<GameSession>();
 
     [SerializeField]
     private GameObject textPrefab;
 
-    [SerializeField]
+    [SerializeField] 
     private GameObject serverLogParent;
 
     [SerializeField]
@@ -627,7 +623,6 @@ public class NetworkedServer : MonoBehaviour
                     index++;
                 }
 
-                //Debug.Log("num accounts: " + numAccounts.ToString());
             }
             else
             {
@@ -764,7 +759,6 @@ public class NetworkedServer : MonoBehaviour
             foreach (PlayerAccount p in playerAccounts)
             {
                 // assume it exists unless otherwise it doesnt
-                //wronguser = true;
                 if (p.username == _user)
                 {
                     if (p.password == _pass)
@@ -1240,7 +1234,6 @@ public class NetworkedServer : MonoBehaviour
                     // of elements after the last sub division, just do a simple check
                     if (k < recordings[i].records.Count)
                     {
-                        Debug.Log("Heart beat number: " + j + " " + " Index is: " + k.ToString());
                         tempRecords.Add(recordings[i].records[k]);
                     }
                 }
@@ -1254,12 +1247,10 @@ public class NetworkedServer : MonoBehaviour
                     msg += r.GetParsedData() + ",";
 
 
+                // and now we can send it to the server
                 SendMessageToAllClients(msg);
 
-                // and now we can send it to the server
-                //netclient.SendMessageToHost(msg);
 
-                //Debug.Log("Message: " + msg.ToString());
             }
             // tell the server that were done sending records
             // so the server can add it to the list of saved recordings
