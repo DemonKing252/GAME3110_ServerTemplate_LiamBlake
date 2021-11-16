@@ -159,7 +159,6 @@ public class GameSession
     }
 
 }
-
 public class Record
 {
     public float timeRecorded = 0f;
@@ -252,6 +251,7 @@ public class NetworkedServer : MonoBehaviour
 
     private string playerAccountPath;
     private string bannedPlayersPath;
+    private string recordingsPath;
 
     [SerializeField]
     private LinkedList<PlayerAccount> playerAccounts = new LinkedList<PlayerAccount>();
@@ -280,6 +280,7 @@ public class NetworkedServer : MonoBehaviour
 
         playerAccountPath = Application.dataPath + Path.DirectorySeparatorChar + "Resources" + Path.DirectorySeparatorChar + "PlayerAccounts.txt";
         bannedPlayersPath = Application.dataPath + Path.DirectorySeparatorChar + "Resources" + Path.DirectorySeparatorChar + "BannedPlayers.txt";
+        recordingsPath = Application.dataPath + Path.DirectorySeparatorChar + "Resources" + Path.DirectorySeparatorChar + "Recorings.txt";
 
 
         NewServerMessage("Loading player accounts..");
@@ -287,6 +288,9 @@ public class NetworkedServer : MonoBehaviour
 
         NewServerMessage("Loading banned players..");
         LoadBannedPlayers();
+
+        NewServerMessage("Loading recordings..");
+        LoadRecordings();
 
         NetworkTransport.Init();
         ConnectionConfig config = new ConnectionConfig();
@@ -502,6 +506,9 @@ public class NetworkedServer : MonoBehaviour
         NewServerMessage("Saving banned players");
         SaveBannedPlayers();
 
+        NewServerMessage("Saving recordings");
+        SaveRecordings();
+
         DisconnectAllClients();
     }
 
@@ -542,6 +549,8 @@ public class NetworkedServer : MonoBehaviour
 
         return txt;
     }
+    
+
     public void LoadBannedPlayers()
     {
         try
@@ -636,6 +645,114 @@ public class NetworkedServer : MonoBehaviour
         catch (Exception e)
         {
             NewServerError("ERROR when loading: " + e.Message);
+        }
+    }
+    public void SaveRecordings()
+    {
+        try
+        {
+            StreamWriter sw = new StreamWriter(recordingsPath);
+            
+            foreach(Recording rec in recordings)
+            {
+
+                string msg = rec.username + "=" + rec.timeRecorded + "=" + rec.records.Count.ToString() + "=|";
+                foreach (Record r in rec.records)
+                {
+
+                    // Seperate by commas, the slots, messages, board status and time recoreded are seperated by +'s.
+                    foreach (char c in r.slots)
+                        msg += c + ",";
+
+                    msg += '+';
+
+                    // We dont want to save empty messages, theres no point, it will just take up more memory.
+                    foreach (string m in r.messages)
+                        if (m != string.Empty)
+                            msg += m + ",";
+
+                    msg += '+' + r.serverResponse + "," + r.timeRecorded.ToString("F2") + '+';
+
+                    msg += '|';
+                }
+
+                sw.WriteLine(msg);
+
+            }
+            sw.Close();
+        }
+        catch (Exception e)
+        {
+            NewServerError("ERROR when saving recordings: " + e.Message);
+        }
+    }
+    public void LoadRecordings()
+    {
+        try
+        {
+            
+            StreamReader sr = new StreamReader(recordingsPath);
+
+            if (File.Exists(recordingsPath))
+            {
+                // Load data here.
+                string line = string.Empty;
+                while ((line = sr.ReadLine()) != null)
+                {
+                    Recording recording = new Recording();
+
+                    // Seperation --> UserName=TimeRecorded=NumOfRecords|Data for records goes here...
+                    string[] recordingAttributes = line.Split('=');
+                    recording.username = recordingAttributes[0];
+                    recording.timeRecorded = recordingAttributes[1];
+
+                    string[] recordsData = line.Split('|');
+                    int numRecords = int.Parse(recordingAttributes[2]);
+
+                    int index = 1;
+                    for (int i = 0; i < numRecords; i++)
+                    {
+                        Record r = new Record();
+
+                        string[] recordAttributes = recordsData[index].Split('+');
+
+                        // Load board data
+                        string[] boardData = recordAttributes[0].Split(',');
+                        for (int j = 0; j < 9; j++)
+                        {
+                            r.slots[j] = boardData[j][0];
+                        }
+                        // Load messages
+                        string[] messageData = recordAttributes[1].Split(',');
+                        foreach(string m in messageData)
+                        {
+                            if (m != string.Empty)
+                                r.messages.Add(m);
+                            
+                        }
+
+                        // Load board status and time recorded
+                        string[] boardAttributes = recordAttributes[2].Split(',');
+                        r.serverResponse = boardAttributes[0];
+                        r.timeRecorded = float.Parse(boardAttributes[1]);
+                        r.timeRecorded = float.Parse(boardAttributes[1]);
+                        recording.records.Add(r);
+
+                        index++;
+                    }
+                    recordings.Add(recording);
+                }
+            }
+            else
+            {
+                SaveRecordings();
+                LoadRecordings();
+            }
+
+        }
+        catch (Exception e)
+        {
+            NewServerError("ERROR when loading recordings: " + e.Message);
         }
     }
 
@@ -1247,7 +1364,7 @@ public class NetworkedServer : MonoBehaviour
                     msg += r.GetParsedData() + ",";
 
 
-                // and now we can send it to the server
+                // and now we can send it to the client
                 SendMessageToAllClients(msg);
 
 
