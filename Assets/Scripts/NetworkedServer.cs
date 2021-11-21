@@ -182,7 +182,7 @@ public class Record
     public List<string> messages;
     public string serverResponse;
 
-    public string GetParsedData()
+    public string SerializeData()
     {
         string temp = "";
         foreach (char s in slots)
@@ -196,6 +196,32 @@ public class Record
         }
 
         return temp;
+    }
+    public void DeSerializeData(string[] gameData)
+    {
+
+        string[] boardData = gameData[0].Split('|');
+
+        // Using index 0 will allow you to get the character in the string (index 0)
+        slots[0] = boardData[0][0];  // characters
+        slots[1] = boardData[1][0];  // characters
+        slots[2] = boardData[2][0];  // characters
+        slots[3] = boardData[3][0];  // characters
+        slots[4] = boardData[4][0];  // characters
+        slots[5] = boardData[5][0];  // characters
+        slots[6] = boardData[6][0];  // characters
+        slots[7] = boardData[7][0];  // characters
+        slots[8] = boardData[8][0];  // characters
+
+        // Server response status (the text on screen above the board)
+        serverResponse = boardData[9];
+        timeRecorded = float.Parse(boardData[10]);
+
+        string[] textData = gameData[1].Split('|');
+        foreach (string s in textData)
+        {
+            messages.Add(s);
+        }
     }
 }
 
@@ -332,7 +358,7 @@ public class NetworkedServer : MonoBehaviour
 
             if (DoesCommandExist(cmdSubAttributes[0]))
             {
-                // Apparently theres no variable const for an orange color
+                // Verify that the user entered the footer command properly
                 if (cmdSubAttributes.Length == 2)
                 {
                     // If this command has a footer (ie: kick username, ban username etc)
@@ -725,6 +751,7 @@ public class NetworkedServer : MonoBehaviour
                         string[] messageData = recordAttributes[1].Split(',');
                         foreach(string m in messageData)
                         {
+                            // Don't load up an empty string
                             if (m != string.Empty)
                                 r.messages.Add(m);
                             
@@ -1208,35 +1235,13 @@ public class NetworkedServer : MonoBehaviour
             int numSubDivisions = int.Parse(data[1]);
             for(int i = 0; i < numSubDivisions; i++)
             {
-                string[] gameData = data[index].Split('+'); 
+                string[] gameData = data[index].Split('+');
 
-                string[] boardData = gameData[0].Split('|');
                 Record r = new Record();
-
-                // using index 0 will allow you to get the character in the string (index 0)
-                r.slots[0] = boardData[0][0];  // characters
-                r.slots[1] = boardData[1][0];  // characters
-                r.slots[2] = boardData[2][0];  // characters
-                r.slots[3] = boardData[3][0];  // characters
-                r.slots[4] = boardData[4][0];  // characters
-                r.slots[5] = boardData[5][0];  // characters
-                r.slots[6] = boardData[6][0];  // characters
-                r.slots[7] = boardData[7][0];  // characters
-                r.slots[8] = boardData[8][0];  // characters
-
-                // Server response status (the text on screen above the board)
-                r.serverResponse = boardData[9];
-                r.timeRecorded = float.Parse(boardData[10]);
-
-                string[] textData = gameData[1].Split('|');
-                foreach(string s in textData)
-                {
-                    r.messages.Add(s);
-                }
-
-                index++;
+                r.DeSerializeData(gameData);
 
                 clientRecords.Add(r);
+                index++;
             }
 
 
@@ -1251,17 +1256,13 @@ public class NetworkedServer : MonoBehaviour
             recording.username = data[2];
 
             // Copy the list over.
-            Record[] tempRecords = new Record[clientRecords.Count];
-            clientRecords.CopyTo(tempRecords, 0);
-
-            foreach (Record r in tempRecords)
+            // CopyTo method doesn't let you copy it to a list, so thats not an option
+            foreach (Record r in clientRecords)
                 recording.records.Add(r);
 
             // Add our recording
             recordings.Add(recording);
 
-            // Clear the list for the next client.
-            clientRecords.Clear();
 
             // Send a copy of our recordings back to every client so they have them.
             NotifyClientsAboutNewRecordings();
@@ -1360,7 +1361,7 @@ public class NetworkedServer : MonoBehaviour
                 // We can have seperated values inside other seperated values.
                 // a comma will seperate the records, while a '|' will seperate the board slots themselves
                 foreach (Record r in tempRecords)
-                    msg += r.GetParsedData() + ",";
+                    msg += r.SerializeData() + ",";
 
 
                 // and now we can send it to the client
@@ -1433,10 +1434,9 @@ public class NetworkedServer : MonoBehaviour
     public bool IsUserNameAlreadyLoggedOn(string username)
     {
         foreach(PlayerAccount pa in activeAccounts)
-        {
             if (pa.username == username)
                 return true;
-        }
+        
         return false;
     }
     public string GetUserName(int id)
