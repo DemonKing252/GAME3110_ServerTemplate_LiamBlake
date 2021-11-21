@@ -553,11 +553,11 @@ public class NetworkedServer : MonoBehaviour
 
     public void LoadBannedPlayers()
     {
+        StreamReader sr = new StreamReader(bannedPlayersPath);
         try
         {
             if (File.Exists(bannedPlayersPath))
             {
-                StreamReader sr = new StreamReader(bannedPlayersPath);
 
                 string rawdata;
                 while ((rawdata = sr.ReadLine()) != null)
@@ -601,12 +601,12 @@ public class NetworkedServer : MonoBehaviour
     }
     public void LoadAccounts()
     {
+        StreamReader sr = new StreamReader(playerAccountPath);
 
         try
         {
             if (File.Exists(playerAccountPath))
             {
-                StreamReader sr = new StreamReader(playerAccountPath);
 
                 string rawdata;
 
@@ -649,9 +649,9 @@ public class NetworkedServer : MonoBehaviour
     }
     public void SaveRecordings()
     {
+        StreamWriter sw = new StreamWriter(recordingsPath);
         try
         {
-            StreamWriter sw = new StreamWriter(recordingsPath);
             
             foreach(Recording rec in recordings)
             {
@@ -688,10 +688,9 @@ public class NetworkedServer : MonoBehaviour
     }
     public void LoadRecordings()
     {
+        StreamReader sr = new StreamReader(recordingsPath);
         try
         {
-            
-            StreamReader sr = new StreamReader(recordingsPath);
 
             if (File.Exists(recordingsPath))
             {
