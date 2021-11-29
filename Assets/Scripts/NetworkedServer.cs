@@ -203,15 +203,9 @@ public class Record
         string[] boardData = gameData[0].Split('|');
 
         // Using index 0 will allow you to get the character in the string (index 0)
-        slots[0] = boardData[0][0];  // characters
-        slots[1] = boardData[1][0];  // characters
-        slots[2] = boardData[2][0];  // characters
-        slots[3] = boardData[3][0];  // characters
-        slots[4] = boardData[4][0];  // characters
-        slots[5] = boardData[5][0];  // characters
-        slots[6] = boardData[6][0];  // characters
-        slots[7] = boardData[7][0];  // characters
-        slots[8] = boardData[8][0];  // characters
+        for (int i = 0; i < slots.Length; i++)
+            slots[i] = boardData[i][0];
+        
 
         // Server response status (the text on screen above the board)
         serverResponse = boardData[9];
