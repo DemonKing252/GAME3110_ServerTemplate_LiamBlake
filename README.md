@@ -17,8 +17,13 @@ The server log has text messages which get displayed whenever something changes 
 
 ### Citation
 https://stackoverflow.com/questions/1094445/how-does-one-add-a-linkedlistt-to-a-linkedlistt-in-c
+
 https://stackoverflow.com/questions/9301268/how-can-i-convert-comma-separated-string-into-a-listint/9301290
+
 https://docs.microsoft.com/en-us/dotnet/framework/wcf/feature-details/reliable-sessions-overview
-Your lectures on comma seperated values
-Your lectures on stream writing and reading
-Your lectures on using the network transport layer
+
+Fernando (Wind Jester) lectures on comma seperated values
+
+Fernando (Wind Jester) lectures on stream writing and reading
+
+Fernando (Wind Jester) lectures on using the network transport layer
