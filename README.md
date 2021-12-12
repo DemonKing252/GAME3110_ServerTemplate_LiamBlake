@@ -14,3 +14,11 @@ The server log has text messages which get displayed whenever something changes 
 2. Connection lost - if the server goes offline suddenly, all clients get kicked back to the connect to host menu.
 
 3. Player connection lost - if a player disconnects mid game, the other player as well as all observers get kicked back to the find match menu.
+
+###Citation
+https://stackoverflow.com/questions/1094445/how-does-one-add-a-linkedlistt-to-a-linkedlistt-in-c
+https://stackoverflow.com/questions/9301268/how-can-i-convert-comma-separated-string-into-a-listint/9301290
+https://docs.microsoft.com/en-us/dotnet/framework/wcf/feature-details/reliable-sessions-overview
+Your lectures on comma seperated values
+Your lectures on stream writing and reading
+Your lectures on using the network transport layer
