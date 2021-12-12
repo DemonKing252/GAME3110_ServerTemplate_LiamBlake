@@ -55,18 +55,6 @@ public static class ServerToClientSignifier
     public const int ConnectionLost = 116;
 
 }
-// manage sending our chat message to clients who we want to have authority 
-public static class MessageAuthority
-{
-    // These responses can be xxx digits, because they wont be checked anywhere else unless under the 
-    // condition of "ChatMessage" (signafier = 6)
-    // just to make sure though, im leaving a space of 50 between them.
-
-    public const int ToGameSession = 151;       // To clients in the game session
-    public const int ToObservers = 152;         // To observer clients
-    public const int ToOtherClients = 153;      // To game session clients
-}
-
 // The result of a client attempting to login (this is a server to client signifier)
 public static class LoginResponse
 {
