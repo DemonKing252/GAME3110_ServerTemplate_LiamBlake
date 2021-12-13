@@ -185,7 +185,7 @@ public class Record
 
         return temp;
     }
-    public void DeSerializeData(string[] gameData)
+    public void DeserializeData(string[] gameData)
     {
 
         string[] boardData = gameData[0].Split('|');
@@ -1220,7 +1220,7 @@ public class NetworkedServer : MonoBehaviour
                 string[] gameData = data[index].Split('+');
 
                 Record r = new Record();
-                r.DeSerializeData(gameData);
+                r.DeserializeData(gameData);
 
                 clientRecords.Add(r);
                 index++;
